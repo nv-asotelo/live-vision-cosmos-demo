@@ -1,0 +1,33 @@
+[Unit]
+Description=Live Vision - Cosmos3-Edge + Reachy Mini demo UI
+After=network.target live-vision-cosmos-demo-shim.service
+Wants=live-vision-cosmos-demo-shim.service
+
+[Service]
+Type=simple
+# REPLACE User/Group with the account you cloned this repo as (must own /opt/live-vision-cosmos-demo).
+User=YOUR_USERNAME
+Group=YOUR_USERNAME
+WorkingDirectory=/opt/live-vision-cosmos-demo
+# --reachy-daemon-url: Reachy Mini's own control API (motors/apps/TTS) - REPLACE with your robot's
+#   IP. Omit the whole flag if you have no robot; those UI panels just don't appear.
+# --piper-bin/--piper-model: see README "Setting up text-to-speech" for where to get both.
+# --cert/--key: a self-signed pair is fine - see README "TLS certificate" for one openssl command.
+#   Browsers refuse camera access (getUserMedia) on plain HTTP from anything but localhost, so
+#   this is required for the webcam path to work from any device but the Orin's own browser.
+ExecStart=/usr/bin/python3 /opt/live-vision-cosmos-demo/ui/scripts/serve_ui.py \
+  --host 0.0.0.0 --port 8091 --https-port 8443 \
+  --cert /opt/live-vision-cosmos-demo/tls/cert.pem --key /opt/live-vision-cosmos-demo/tls/key.pem \
+  --allow-insecure-lan --backend-port 8001 \
+  --reachy-daemon-url http://REACHY-MINI-IP:8000 \
+  --piper-bin /opt/live-vision-cosmos-demo/piper/piper --piper-model /opt/live-vision-cosmos-demo/piper/en_US-libritts-high.onnx \
+  --engine-link /opt/live-vision-cosmos-demo/engine-link --default-engine cosmos \
+  --engines-config /opt/live-vision-cosmos-demo/engines.json \
+  --shim-service live-vision-cosmos-demo-shim \
+  --services-config /opt/live-vision-cosmos-demo/services.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
