@@ -109,14 +109,17 @@ cp ui/config/engines.example.json engines.json # edit "path" to match the engine
 mkdir piper && cd piper
 # get a piper binary release for your architecture (aarch64 for Jetson) from
 # https://github.com/rhasspy/piper/releases or build from source
-curl -sL -o en_US-libritts-high.onnx \
-  "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts/high/en_US-libritts-high.onnx"
-curl -sL -o en_US-libritts-high.onnx.json \
-  "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts/high/en_US-libritts-high.onnx.json"
+curl -sL -o en_US-ljspeech-medium.onnx \
+  "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx"
+curl -sL -o en_US-ljspeech-medium.onnx.json \
+  "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx.json"
 ```
 
-See NOTICE.md before substituting a different voice - several published Piper voices carry
-non-commercial-only licenses inherited from their base voice, not obvious from the filename.
+`medium` quality, not `high`: measured directly on an Orin, `high`-tier voices roughly double
+synthesis time for the same sentence, which fights this project's own "fastest latency" design
+goal for a marginal quality gain speech-through-a-small-speaker doesn't showcase. See NOTICE.md
+before substituting a different voice - several published Piper voices carry non-commercial-only
+licenses inherited from their base voice, not obvious from the filename.
 
 ### 4. Set up the Reachy Mini bridge (optional - only for using Reachy Mini as a video source)
 

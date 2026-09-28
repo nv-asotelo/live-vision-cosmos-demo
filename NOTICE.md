@@ -29,10 +29,9 @@ terms they differ meaningfully.)
 Piper embeds [espeak-ng](https://github.com/espeak-ng/espeak-ng) (GPL-3.0) for phonemization.
 
 **Voice model:** this repository does not ship a voice model file - the setup steps in
-`README.md` download `en_US-libritts-high` at install time, MIT-licensed, trained from scratch on
-the CC BY 4.0-licensed `train-clean-360` subset of LibriTTS
-([source](http://www.openslr.org/60/), model card on
-[Hugging Face](https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/libritts/high/MODEL_CARD)).
+`README.md` download `en_US-ljspeech-medium` at install time, MIT-licensed, trained from scratch
+on the public-domain [LJ Speech Dataset](https://keithito.com/LJ-Speech-Dataset/) (model card on
+[Hugging Face](https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ljspeech/medium/MODEL_CARD)).
 If you substitute a different Piper voice, check its own MODEL_CARD - several published Piper
 voices (including ones with "_r" in their name, trained by fine-tuning from another voice) carry
 non-commercial-only research licenses inherited from their base voice.
