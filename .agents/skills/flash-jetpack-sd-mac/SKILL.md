@@ -43,6 +43,10 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
    for them. There are no default credentials.
    Recommend wired Ethernet to the router: choose **`enP8p1s0: Ethernet PCI`** in
    network setup (the interface name may vary), not the USB network entries.
+   A fresh card loses the old OS's static network profile. Distinguish a router DHCP
+   reservation (use automatic configuration) from a manually assigned Orin address
+   (use the manual IP/mask/gateway/DNS prompts after failed DHCP). Do not assume
+   `/24`; Mac settings apply only on the same LAN. Never commit personal addresses.
 6. The script verifies SD root, L4T 39.2.1, filesystem expansion, and card identity
    when available before enabling SSH; an NVMe boot is a stop, not permission to
    modify NVMe. It then verifies SSH against the public host key obtained over USB.

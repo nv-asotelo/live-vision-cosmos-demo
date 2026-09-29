@@ -97,6 +97,18 @@ Use `--serial-port /dev/cu.usbmodemXXXX` if multiple Jetsons are connected, or
 `--host <Jetson-LAN-IP>` to select an SSH address. **Ctrl-Q** stops the console.
 After an interrupted setup or a required reboot, run `--first-boot-only` again.
 
+**Existing static IP / failed DHCP:** a fresh card does not inherit network settings
+from the old installation. If the fixed IP is a **router DHCP reservation**, keep
+automatic configuration; check the Ethernet link/router DHCP service and retry if
+autoconfiguration fails. If the IP was **manually configured on the Orin**, choose
+**Configure network manually** after the failure message (or continue at the manual
+IP prompt). Enter the assigned IP/CIDR, subnet mask, gateway, and DNS from your
+network configuration. Use the actual subnet prefix; do not assume `/24`. The Mac's
+mask/gateway/DNS are useful references only when it is on the same LAN; the Orin
+needs its own assigned IP. See [manual network configuration](https://www.debian.org/releases/stable/arm64/ch06s03.en.html#di-netcfg).
+To verify SSH specifically over the fixed LAN address, add `--host YOUR_ORIN_IP`
+to the first-boot command. Keep personal network addresses out of committed files.
+
 The [USB-network address](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/hardware_layout.html#usb-ports)
 is normally `192.168.55.1` after setup; the script also tries the Jetson's LAN
 addresses. USB alone supplies neither Orin power nor internet access. Continue

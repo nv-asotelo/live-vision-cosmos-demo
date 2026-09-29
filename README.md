@@ -56,7 +56,7 @@ with compatible R39.2.1 QSPI firmware already installed. It prepares OS and NVID
 only. The same command writes/verifies/ejects the card, waits while you move it to the
 Orin, opens USB first-boot setup, then checks SD boot, filesystem expansion, and SSH.
 Use the Orin's power supply and wired Ethernet to your router; select **Ethernet PCI**
-in first-boot network setup. Complete NVIDIA's license/account
+in first-boot network setup ([static IP / DHCP fallback](docs/jetpack-sd-mac.md#first-boot-from-the-mac)). Complete NVIDIA's license/account
 prompts locally; there are no default credentials. Already flashed? Resume with
 `./scripts/flash-jetpack-sd-mac.sh --first-boot-only`. [Workflow and USB limitations](docs/jetpack-sd-mac.md).
 Validated on a **fresh 64 GB SD card** using this script and
