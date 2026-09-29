@@ -1,6 +1,6 @@
 ---
 name: flash-jetpack-sd-mac
-description: Prepare a clean JetPack 7.2.1 SD card for an Orin Nano Super developer kit from an Apple Silicon Mac before Live Vision demo setup.
+description: Flash a clean JetPack 7.2.1 SD card from an Apple Silicon Mac, then guide USB first boot and verify SSH on an Orin Nano Super before Live Vision demo setup. Also use to resume an already-flashed card with --first-boot-only.
 ---
 
 Read [the Mac workflow](../../../docs/jetpack-sd-mac.md) for host requirements,
@@ -15,11 +15,14 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
    Identify the user's intended whole SD card by reader, capacity, and serial when
    available. A built-in reader can report **Internal: Yes**; its protocol is
    **Secure Digital**. Never infer the target from the highest disk number.
-2. Run `./scripts/flash-jetpack-sd-mac.sh --disk /dev/diskN --dry-run` to build/cache
-   and validate the image. The first build can take an hour or more. It creates an
-   isolated Ubuntu amd64 VM; no Jetson USB connection is needed.
-3. If flashing this identified card is already authorized, run the same command
-   with `--erase` instead of `--dry-run`. Otherwise explain the selected card and
+2. For an already-flashed card, skip disk selection/build/write and run
+   `./scripts/flash-jetpack-sd-mac.sh --first-boot-only` in Mac Terminal.
+   Otherwise use `--disk /dev/diskN --dry-run` to build/cache and validate without
+   writing when a preflight is needed. The first build can take an hour or more;
+   its isolated Ubuntu VM has no Jetson USB or host-disk passthrough.
+3. If flashing this identified card is already authorized, run
+   `./scripts/flash-jetpack-sd-mac.sh --disk /dev/diskN --erase`. It validates before
+   writing and continues into first boot. Otherwise explain the selected card and
    obtain authorization before erasing. Run in Terminal and let the user authenticate with `sudo`;
    never collect their password in chat. Keep the card inserted through readback.
    For an agent without an interactive terminal, prepare the exact authorized command
@@ -32,13 +35,27 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
    workflow's disk-access guidance and wait for the user to grant that permission.
    Do not change privacy settings yourself. Staged files and logs are retained on
    failure; the helper stages outside Documents to avoid privacy-folder failures.
-5. Ask the user to boot the SD on the Orin, finish first-boot setup, and enable
-   SSH. For setup without a monitor, follow [first boot from the Mac](../../../docs/jetpack-sd-mac.md#first-boot-from-the-mac).
-   There are no default credentials; have the user create their account locally.
-   USB-C serial starts after Linux and cannot select the SD in UEFI's boot menu.
-   Check `findmnt -n -o SOURCE /`, `cat /etc/nv_tegra_release`, and `df -h /`
-   before claiming SD boot or filesystem expansion. Writing and readback alone
-   do not prove boot, GPU execution, or Live Vision inference.
+5. The same Terminal session waits for the user to move the card to the powered-off
+   Orin and connect USB-C data, Ethernet, and normal power (no monitor/recovery jumper).
+   It discovers NVIDIA serial and reconnects to that Jetson after USB restarts.
+   Have the user complete NVIDIA license/account prompts locally, log in, and press
+   **Ctrl-]** at the Linux shell. Never enter/collect passwords or accept licenses
+   for them. There are no default credentials.
+   Recommend wired Ethernet to the router: choose **`enP8p1s0: Ethernet PCI`** in
+   network setup (the interface name may vary), not the USB network entries.
+6. The script verifies SD root, L4T 39.2.1, filesystem expansion, and card identity
+   when available before enabling SSH; an NVMe boot is a stop, not permission to
+   modify NVMe. It then verifies SSH against the public host key obtained over USB.
+   Require `JETPACK_READY` and `first-boot-receipt.json` before claiming verified
+   first boot. Keep flash/readback, Linux setup prompt, SD root/expansion, and demo
+   validation distinct. Failure can resume with `--first-boot-only`; never reflash
+   to retry account/network setup. `--flash-only` deliberately stops after ejection.
+
+USB-C does not expose the SD as a Mac disk. Never write to the small L4T-README
+virtual disk. Direct recovery flashing needs an Ubuntu x86_64 host and is outside
+this script. Native USB-C serial starts after Linux and cannot control UEFI; for
+SD boot-menu selection use a display/keyboard or the documented USB-to-TTL header
+console. See [the workflow](../../../docs/jetpack-sd-mac.md#why-still-use-the-macs-sd-reader).
 
 Return to [AGENTS.md](../../../AGENTS.md) for demo setup, which installs the
 missing compute components and then the application. This skill does not update

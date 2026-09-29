@@ -51,5 +51,13 @@
     "Fresh BSP/rootfs image creation and validation passed using the bring-up scripts. The public one-shot used that cached image.",
     "A fresh public-wrapper VM bootstrap passed; the complete cold image build through the new wrapper has not been run.",
     "SD boot, first-boot filesystem expansion, compute installation and Live Vision execution on this card have not been tested."
-  ]
+  ],
+  "first_boot_followup": {
+    "validation_date": "2026-09-29",
+    "nvidia_usb_serial_discovery": true,
+    "nvidia_system_configuration_prompt_observed": true,
+    "guided_console_network_setup_observed": true,
+    "automated_regression_tests_passed": 27,
+    "sd_root_expansion_and_ssh_verification": "pending interactive first-boot completion"
+  }
 }

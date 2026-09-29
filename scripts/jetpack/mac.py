@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""One-command clean JetPack 7.2.1 SD preparation for an Apple Silicon Mac."""
+"""Prepare JetPack 7.2.1 SD media and complete first boot from an Apple Silicon Mac."""
 import argparse
 from contextlib import contextmanager
 import fcntl
@@ -17,6 +17,7 @@ import tempfile
 import time
 
 from write_sd import require, target_identity, validate_image
+from first_boot import first_boot
 
 HERE = Path(__file__).resolve().parent
 RELEASE = json.loads((HERE / "release.json").read_text())
@@ -240,32 +241,43 @@ def write_card(image_dir, disk, target, zstd):
         else:
             print("Retained flash diagnostics and staged image at " + str(stage), flush=True)
     print("Receipt: " + str(image_dir / "flash-receipt.json"), flush=True)
-    print("Boot the SD on the Orin, complete first-boot setup, enable SSH, then follow the README Quickstart.", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--disk", help="whole SD device, e.g. /dev/disk4; never selected automatically")
     parser.add_argument("--erase", action="store_true", help="authorize erasing the explicitly selected SD card")
-    parser.add_argument("--dry-run", action="store_true", help="validate the card and image without writing")
-    parser.add_argument("--build-only", action="store_true", help="build and validate an image without accessing an SD card")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--dry-run", action="store_true", help="validate the card and image without writing")
+    modes.add_argument("--build-only", action="store_true", help="build and validate an image without accessing an SD card")
+    modes.add_argument("--first-boot-only", action="store_true", help="resume USB first boot; do not build or flash")
+    parser.add_argument("--flash-only", action="store_true", help="stop after verified ejection instead of continuing first boot")
+    parser.add_argument("--serial-port", help="select an NVIDIA USB serial port when multiple Jetsons are connected")
+    parser.add_argument("--host", help="use this Jetson IPv4 address/hostname for SSH verification (default: USB, then LAN)")
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--image-dir", type=Path, help="reuse a previously built image and image.json")
     args = parser.parse_args()
     require(platform.system() == "Darwin" and platform.machine() == "arm64", "This workflow supports Apple Silicon macOS")
     require(int(platform.mac_ver()[0].split(".")[0]) >= 15, "Use macOS 15 or newer")
     require(os.geteuid() != 0, "Run as your normal Mac user; only the SD writer requests administrator authentication")
+    require(not (args.erase and (args.dry_run or args.build_only or args.first_boot_only)),
+            "--erase cannot be combined with --dry-run, --build-only, or --first-boot-only")
+    require(not args.flash_only or args.erase, "--flash-only requires --erase")
+    require(not args.first_boot_only or not (args.disk or args.image_dir),
+            "--first-boot-only does not use --disk or --image-dir")
+    cache = args.cache_dir.expanduser().resolve()
+    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if args.first_boot_only:
+        first_boot(cache, args.serial_port, args.host)
+        return
     require(subprocess.run(["xcode-select", "-p"], capture_output=True).returncode == 0,
             "Install Apple Command Line Tools first: xcode-select --install")
-    require(not (args.erase and (args.dry_run or args.build_only)), "--erase cannot be combined with --dry-run or --build-only")
     require(args.build_only or args.disk, "Use diskutil list to identify the SD card, then supply --disk /dev/diskN")
     zstd = shutil.which("zstd")
     require(zstd, "Install dependencies first: brew install python qemu zstd")
     target = None if args.build_only else target_identity(args.disk)
     if target:
         print(f"Selected {args.disk}: {target['MediaName']}, {target['TotalSize'] / 1e9:.1f} GB, {target['BusProtocol']}", flush=True)
-    cache = args.cache_dir.expanduser().resolve()
-    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (cache / "operation.lock").open("w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -284,6 +296,11 @@ def main():
             require(target_identity(args.disk) == target, "Card changed while building; select it again")
             if args.erase:
                 write_card(output, args.disk, target, zstd)
+                if args.flash_only:
+                    print("Card ejected. Resume from the Mac with --first-boot-only when ready.", flush=True)
+                else:
+                    expected = {key: target[key] for key in ("serial", "TotalSize") if key in target}
+                    first_boot(cache, args.serial_port, args.host, expected)
             else:
                 print("PREFLIGHT_PASSED: no SD writes. Add --erase to flash this card.", flush=True)
 
@@ -291,5 +308,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except KeyboardInterrupt:
+        sys.exit("Stopped. A flashed card can resume first boot with --first-boot-only.")
     except (RuntimeError, OSError, subprocess.SubprocessError) as error:
         sys.exit("ERROR: " + str(error))

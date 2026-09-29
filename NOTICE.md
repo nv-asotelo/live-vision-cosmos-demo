@@ -65,13 +65,13 @@ endorsed by them.
 
 ## Mac JetPack SD preparation
 
-The Mac orchestration, card writer, validation helpers, and agent skill are original
+The Mac orchestration, card writer, USB console/first-boot and validation helpers, and agent skill are original
 Apache-2.0 code adapted from this project's Jetson bring-up workflow. Python helpers
 use only the standard library. No third-party source, OS image, NVIDIA binary, or
 model weight is redistributed with this workflow.
 
 Thanks to NVIDIA for Jetson Linux and its image-creation tools, and the QEMU, Ubuntu,
-Python, Zstandard, and Homebrew contributors for the host tooling:
+Python, OpenSSH, Zstandard, and Homebrew contributors for the host tooling:
 
 | Downloaded or separately installed component | License / acknowledgement |
 |---|---|
@@ -79,6 +79,7 @@ Python, Zstandard, and Homebrew contributors for the host tooling:
 | QEMU | [GNU GPL version 2, with component-specific licenses](https://www.qemu.org/docs/master/about/license.html); QEMU is a trademark of Fabrice Bellard. |
 | Ubuntu 22.04 cloud image | Canonical and the included package authors; [individual package licenses apply](https://ubuntu.com/legal/intellectual-property-policy). Guest package copyright files are under `/usr/share/doc/*/copyright`. |
 | Python | [Python Software Foundation License and included component notices](https://docs.python.org/3/license.html). |
+| OpenSSH | The Mac's separately supplied SSH client/key scanner and Ubuntu's SSH server; [OpenSSH's BSD-style and component license notices](https://github.com/openssh/openssh-portable/blob/master/LICENCE) apply. No OpenSSH source is bundled. |
 | Zstandard | Meta Platforms, Inc. and affiliates; [BSD-3-Clause](https://github.com/facebook/zstd/blob/dev/LICENSE), alternatively GPL-2.0. |
 | Homebrew | Homebrew contributors; [BSD-2-Clause](https://github.com/Homebrew/brew/blob/master/LICENSE.txt). Used to install tools; not bundled. |
 

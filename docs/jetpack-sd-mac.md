@@ -18,8 +18,11 @@ components before the demo build; OS-only media is intentionally not a full comp
 - Compatible **R39.2.1 QSPI firmware already installed**. The Mac card writer cannot
   update the Jetson's QSPI. For an unprepared board or another module, follow
   [NVIDIA's setup instructions](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/setup_bsp.html).
+- USB-C **data** cable, the Orin's normal power supply, and **wired Ethernet to
+  your router (recommended)** for internet. Wi-Fi is an alternative. Leave its
+  monitor disconnected before booting for serial setup.
 
-## Run on the Mac, then boot the Orin
+## One command: card to first boot
 
 ```bash
 brew install python qemu zstd
@@ -31,12 +34,13 @@ Replace `diskN` with the identified **whole SD disk**. `--erase` is explicit
 authorization; run in Terminal and enter your Mac password at the `sudo` prompt.
 Allow removable-volume access if macOS requests it. Use `--dry-run`
 instead to build and validate without writing, or `--build-only` without `--disk`.
+`--flash-only` stops after ejection; the default continues through first boot.
 
 The script downloads hash-pinned NVIDIA BSP/rootfs and Ubuntu 22.04 amd64 media,
 runs NVIDIA's SD image creator in a disposable QEMU VM, checks GPT/ext4 and the clean
 rootfs, then writes the card, verifies the entire image by SHA-256, and ejects it.
 The image contains no Cosmos3-Edge, Live Vision UI, model weights, precreated user,
-or deployment SSH keys. Nothing is passed through to the Jetson or its NVMe.
+or deployment SSH keys. The builder VM has no USB or host-disk passthrough.
 This is a project integration of [NVIDIA's image-creation tools](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#flashing-to-an-sd-card), not an NVIDIA-supported Mac recovery-flash path.
 
 The first build can take an hour or more. Downloads and validated output are cached
@@ -53,53 +57,60 @@ Administrator authentication and disk access are separate permissions
 ([Apple](https://support.apple.com/guide/security/controlling-app-access-to-files-secddd1d86a6/web)).
 Failed writes retain their staging directory and log; resolve the reported cause before retrying.
 
-After ejection, move the card to the powered-off Orin. Complete first-boot setup
-using a monitor and keyboard, or the Mac USB-serial procedure below.
-
 ## First boot from the Mac
 
-There is **no default username or password**. Create your account through
-[NVIDIA's headless first-boot setup](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#headless-mode-flow-in-oem-config):
+The same command continues after verified ejection:
 
-1. Leave the Orin's monitor disconnected, insert the SD, connect its USB-C port to
-   the Mac with a **data cable**, then connect its normal power supply. Boot normally,
-   without a recovery jumper. Connect Ethernet to your router for internet access.
-2. In **Mac Terminal**, find the new serial port and open it (replace `XXXX`):
+1. Move the card to the **powered-off** Orin, connect USB-C data to the Mac and
+   Ethernet to your router, then connect normal power. No recovery jumper.
+2. The script finds the NVIDIA serial console. Press **Enter**, complete
+   [NVIDIA's first-boot license/account prompts](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#headless-mode-flow-in-oem-config),
+   then log in. There is **no default username/password**. USB resets reconnect
+   to the same Jetson automatically; close other serial apps before starting.
+   At **Network configuration → Primary network interface**, select
+   **`enP8p1s0: Ethernet PCI`** and press **Enter** for the recommended wired setup;
+   connect that Ethernet port to your router. Interface names can vary: choose
+   the **Ethernet PCI** entry. For Wi-Fi instead, choose **Wireless ethernet**.
+   The `usb0`/`usb1` Mac link supplies no internet.
+3. At the Linux shell prompt, press **Ctrl-]**. The script checks `/` is
+   `/dev/mmcblk0p1`, Ubuntu is 24.04, L4T is R39 revision 2.1, and both the root
+   partition and filesystem use most of the card. It checks the flashed card's
+   capacity and serial when available in the same run. An NVMe boot stops here.
+4. Only after those checks, it enables SSH; enter your new **Jetson** password
+   at the local prompts. It checks USB/LAN reachability, pins the host key learned
+   over the physical serial link, and verifies the same SD boot through SSH.
 
-   ```bash
-   ls /dev/cu.usbmodem*
-   screen /dev/cu.usbmodemXXXX 115200
-   ```
+`JETPACK_READY` and a separate `first-boot-receipt.json` mean all these checks passed.
+The terminal prints your SSH command and host fingerprint. Passwords are never
+logged or saved; the script does not accept license terms or create an account
+on your behalf. It installs no demo, model, compute SDK, or persistent agent.
 
-   If no port appears, check the data cable, power, and whether Linux has booted.
-3. Press **Enter**, complete the setup prompts, and choose your username/password.
-   Reconnect the serial session if setup restarts USB, then log in.
-
-Run **on the Jetson, inside the serial session**:
-
-```bash
-sudo systemctl enable --now ssh
-findmnt -n -o SOURCE /
-cat /etc/nv_tegra_release
-df -h /
-hostname -I
-```
-
-Expect `/dev/mmcblk0p1`, R39 revision 2.1, and a root filesystem expanded to use
-most of the card. A root device such as `/dev/nvme0n1p1` means the
-existing NVMe installation booted instead. Exit `screen` with **Ctrl-A**, then
-**K**, then **Y**.
-
-From a **new Mac Terminal window**, connect with the account you created:
+For an **already-flashed card**, continue without rebuilding or erasing:
 
 ```bash
-ssh your-username@192.168.55.1
+./scripts/flash-jetpack-sd-mac.sh --first-boot-only
 ```
 
-`192.168.55.1` is the Jetson's [USB-network address](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/hardware_layout.html#usb-ports)
-when that interface is active; otherwise use its Ethernet/Wi-Fi address from
-`hostname -I`. The USB link alone does not provide internet access. Continue with
-the [demo Quickstart](../README.md#quickstart-automated-setup).
+This resume mode needs only the Mac's Python 3.9+ and built-in SSH tools; it does
+not require QEMU, Zstandard, an SD reader, or the build's RAM/disk capacity.
+Use `--serial-port /dev/cu.usbmodemXXXX` if multiple Jetsons are connected, or
+`--host <Jetson-LAN-IP>` to select an SSH address. **Ctrl-Q** stops the console.
+After an interrupted setup or a required reboot, run `--first-boot-only` again.
+
+The [USB-network address](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/hardware_layout.html#usb-ports)
+is normally `192.168.55.1` after setup; the script also tries the Jetson's LAN
+addresses. USB alone supplies neither Orin power nor internet access. Continue
+with the [demo Quickstart](../README.md#quickstart-automated-setup) only when ready
+to install the application.
+
+## Why still use the Mac's SD reader?
+
+USB-C provides the console/network after Linux starts. Its small **L4T-README**
+virtual disk is documentation, **not the SD card**. Direct USB recovery flashing
+for this kit requires an Ubuntu x86_64 host; the Mac builder VM does not implement
+recovery USB passthrough. NVIDIA also offers ISO installation using a separate
+USB flash drive and the Jetson boot menu. The verified SD-reader path is the
+workflow here; see [NVIDIA's installation options](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/setup_bsp.html).
 
 **If SD needs selecting in the boot menu:** USB-C serial appears after Linux
 starts, so it cannot control UEFI. Use a DisplayPort monitor and keyboard
@@ -117,8 +128,12 @@ card. See the [validation record](validation/jetpack-sd-mac-2026-09-29.json).
 Image creation from fresh NVIDIA BSP/rootfs archives, GPT/ext4 checks, and the
 clean-rootfs scan passed in the bring-up workflow. The new wrapper's fresh VM
 bootstrap was tested separately; its complete cold build has not been rerun.
-SD boot, first-boot expansion, compute installation, and Live Vision on this card
-remain untested. Flash verification does not establish those results.
+On the connected Orin, NVIDIA USB discovery and the serial **"Press ENTER to start
+System Configuration"** prompt were observed. The continuation's automated tests
+cover serial transport, device selection/reconnection, refusal of an NVMe boot,
+unexpanded filesystems, SSH identity, and receipts only after success. Physical
+SD root/expansion/SSH verification, compute installation, and Live Vision remain
+pending; a first-boot prompt alone does not establish those results.
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
 bytes used in this bring-up; they are not claimed as publisher-signed checksums.

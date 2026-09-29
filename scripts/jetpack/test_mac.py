@@ -76,5 +76,50 @@ class MacDiagnosticsTests(unittest.TestCase):
         run.assert_not_called()
 
 
+class MacWorkflowTests(unittest.TestCase):
+    def invoke(self, cache, *arguments):
+        with patch.object(mac.sys, "argv", ["mac.py", "--cache-dir", str(cache), *arguments]), \
+             patch.object(mac.platform, "system", return_value="Darwin"), \
+             patch.object(mac.platform, "machine", return_value="arm64"), \
+             patch.object(mac.platform, "mac_ver", return_value=("26.7", "", "")), \
+             patch.object(mac.os, "geteuid", return_value=501), redirect_stdout(io.StringIO()):
+            mac.main()
+
+    def test_resume_never_requires_image_builder_or_touches_disk(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(mac, "first_boot") as boot, \
+             patch.object(mac, "target_identity") as disk, patch.object(mac, "build_image") as build, \
+             patch.object(mac, "validate_image") as validate, patch.object(mac, "write_card") as write, \
+             patch.object(mac.subprocess, "run") as command, patch.object(mac.shutil, "which") as dependency:
+            self.invoke(folder, "--first-boot-only")
+            boot.assert_called_once_with(Path(folder).resolve(), None, None)
+            for operation in (disk, build, validate, write, command, dependency):
+                operation.assert_not_called()
+
+    def test_failed_flash_never_starts_first_boot_and_flash_only_stops_at_ejection(self):
+        for mode in ("failure", "flash-only", "full"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                cache = Path(folder)
+                (cache / "image").mkdir()
+                (cache / "image/image.json").write_text("{}")
+                target = {"MediaName": "SD", "TotalSize": 62883102720, "BusProtocol": "Secure Digital", "serial": "0x12345678"}
+                with patch.object(mac, "target_identity", return_value=target), \
+                     patch.object(mac, "validate_image"), patch.object(mac.subprocess, "run") as command, \
+                     patch.object(mac.shutil, "which", return_value="/unused/zstd"), \
+                     patch.object(mac, "write_card", side_effect=RuntimeError("flash failed") if mode == "failure" else None), \
+                     patch.object(mac, "first_boot") as boot:
+                    command.return_value.returncode = 0
+                    args = ["--disk", "/dev/disk4", "--erase"] + (["--flash-only"] if mode == "flash-only" else [])
+                    if mode == "failure":
+                        with self.assertRaisesRegex(RuntimeError, "flash failed"):
+                            self.invoke(cache, *args)
+                    else:
+                        self.invoke(cache, *args)
+                    if mode == "full":
+                        boot.assert_called_once_with(cache.resolve(), None, None,
+                                                     {"serial": "0x12345678", "TotalSize": target["TotalSize"]})
+                    else:
+                        boot.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

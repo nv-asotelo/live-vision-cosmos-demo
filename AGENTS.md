@@ -18,6 +18,9 @@ For an explicitly requested fresh SD card from a Mac, use
 [the flash skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md) and
 [its workflow](docs/jetpack-sd-mac.md) before returning here. OS preparation needs no
 Hugging Face token. It does require identifying the card and macOS administrator authentication.
+The same command continues through USB first boot and SSH verification; the user
+completes NVIDIA's license/account prompts in Terminal. Use `--first-boot-only`
+for a card already flashed. A USB-C connection alone is not a Mac recovery flasher.
 
 ## Model access needs a human
 

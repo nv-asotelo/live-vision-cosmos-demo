@@ -32,7 +32,7 @@ the redirect hop.
 | `ui/tests/`, run via `python3 -m unittest discover -s ui/tests` and `node --test ui/tests/test_engine_switch.js` | 50 tests, no device or GPU required - a fake HTTP backend and a fake DOM stand in for both. |
 | `scripts/bootstrap.sh` | Run **from a laptop** (any OS, GPU optional - it does no compute itself). Copies this repo to the Orin over SSH and runs `setup-orin.sh` there. |
 | `scripts/setup-orin.sh` | Run **on the Orin** (`bootstrap.sh` does this for you). Idempotent, one-shot: builds TensorRT-Edge-LLM, downloads and quantizes the Cosmos3-Edge checkpoint, builds the engine, installs Piper/TLS/systemd, starts the services. |
-| `scripts/flash-jetpack-sd-mac.sh` | Optional Mac one-shot for a clean JetPack 7.2.1 SD card; helpers in `scripts/jetpack/`, agent skill in `.agents/skills/flash-jetpack-sd-mac/`. |
+| `scripts/flash-jetpack-sd-mac.sh` | Optional Mac one-shot: clean JetPack SD → USB first boot → verified SSH; helpers in `scripts/jetpack/`, agent skill in `.agents/skills/flash-jetpack-sd-mac/`. |
 | `vendor/quantize_cosmos3_rtn.py` | The CPU-only INT4 RTN quantizer `setup-orin.sh` calls. Not part of NVIDIA's public TensorRT-Edge-LLM SDK - see NOTICE.md for provenance. |
 | `AGENTS.md` | Setup/deployment recipe written for an AI coding agent to follow unattended, plus the "don't change these without re-deriving them" list for the pinned build constants below. `CLAUDE.md` points here. |
 
@@ -42,7 +42,7 @@ the redirect hop.
 installation is not needed; setup installs any missing pinned CUDA/TensorRT components.
 
 **Need a fresh SD card first?** On an Apple Silicon MacBook with macOS 15+, 16 GB RAM,
-60 GiB free disk, Apple Command Line Tools, Homebrew, internet, an SD reader, and
+60 GiB free disk, Apple Command Line Tools, Homebrew, internet, an SD reader, a USB-C data cable, and
 administrator/disk-access permission, run in Terminal:
 
 ```bash
@@ -53,12 +53,16 @@ diskutil list                       # identify the 64 GB+ SD card
 
 This optional route targets the **Orin Nano Super 8 GB developer kit (P3767-0005)**
 with compatible R39.2.1 QSPI firmware already installed. It prepares OS and NVIDIA drivers
-only. Boot the card, complete first-boot setup, enable SSH, then continue below.
-Without a monitor, follow [first boot from the Mac over USB serial](docs/jetpack-sd-mac.md#first-boot-from-the-mac)
-to create your account and enable SSH; there are no default login credentials.
+only. The same command writes/verifies/ejects the card, waits while you move it to the
+Orin, opens USB first-boot setup, then checks SD boot, filesystem expansion, and SSH.
+Use the Orin's power supply and wired Ethernet to your router; select **Ethernet PCI**
+in first-boot network setup. Complete NVIDIA's license/account
+prompts locally; there are no default credentials. Already flashed? Resume with
+`./scripts/flash-jetpack-sd-mac.sh --first-boot-only`. [Workflow and USB limitations](docs/jetpack-sd-mac.md).
 Validated on a **fresh 64 GB SD card** using this script and
 [agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md): writing and full image
-readback passed on 2026-09-29; SD boot is not yet tested.
+readback passed on 2026-09-29. The USB first-boot prompt was observed; SD root,
+expansion, and SSH verification are still pending.
 See the [Mac workflow and validation record](docs/jetpack-sd-mac.md) for scope.
 
 Starting point: a Jetson Orin with **JetPack already flashed and booting**, reachable over
