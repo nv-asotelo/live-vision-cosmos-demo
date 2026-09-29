@@ -106,6 +106,8 @@ IP prompt). Enter the assigned IP/CIDR, subnet mask, gateway, and DNS from your
 network configuration. Use the actual subnet prefix; do not assume `/24`. The Mac's
 mask/gateway/DNS are useful references only when it is on the same LAN; the Orin
 needs its own assigned IP. See [manual network configuration](https://www.debian.org/releases/stable/arm64/ch06s03.en.html#di-netcfg).
+For **Hostname**, use a name such as `orin-sd`. Leave **Domain name** blank unless
+your network administrator supplied a DNS domain; it is not required on a typical home LAN.
 To verify SSH specifically over the fixed LAN address, add `--host YOUR_ORIN_IP`
 to the first-boot command. Keep personal network addresses out of committed files.
 
