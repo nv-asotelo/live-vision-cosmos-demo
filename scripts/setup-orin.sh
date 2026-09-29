@@ -70,7 +70,8 @@ do_preflight() {
   [[ "$EUID" -eq 0 ]] || die "run with sudo: sudo -E bash $0"
   [[ -n "$HF_TOKEN" ]] || die "HF_TOKEN is not set. Accept the license at https://huggingface.co/nvidia/Cosmos3-Edge, create a read token at https://huggingface.co/settings/tokens, and re-run with HF_TOKEN=hf_... set."
   command -v python3 >/dev/null || die "python3 not found - is JetPack actually flashed and booted?"
-  command -v nvcc >/dev/null || [[ -x /usr/local/cuda*/bin/nvcc ]] || warn "nvcc not found on PATH yet - fine if it's under /usr/local/cuda-*/bin, the build stage adds that explicitly."
+  [[ $(dpkg-query -W -f='${Version}' nvidia-l4t-core 2>/dev/null || true) == 39.2.1-* ]] \
+    || die "This pinned demo requires JetPack 7.2.1 / L4T 39.2.1. An existing compatible installation is fine; for fresh Mac SD preparation see docs/jetpack-sd-mac.md."
   local avail_kb; avail_kb=$(df -Pk "$(dirname "$INSTALL_DIR")" | awk 'NR==2{print $4}')
   local avail_gb=$((avail_kb / 1024 / 1024))
   [[ "$avail_gb" -ge 25 ]] || die "only ${avail_gb} GiB free under $(dirname "$INSTALL_DIR") - this build needs roughly 25-30 GiB (checkpoint + TensorRT-Edge-LLM build tree + exported engines). Free up space or point INSTALL_DIR's parent at a larger disk/SD card."
@@ -86,6 +87,10 @@ do_system_packages() {
     build-essential binutils cmake git ca-certificates \
     python3-venv python3-dev python3-pip \
     curl jq sox openssl
+}
+
+do_jetpack_compute() {
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-jetpack-compute.sh"
 }
 
 do_fetch_repo_self() {
@@ -116,7 +121,7 @@ do_fetch_edgellm() {
 
 do_edgellm_venv() {
   local cuda_bin; cuda_bin="$(ls -d /usr/local/cuda-*/bin 2>/dev/null | sort -V | tail -1)"
-  [[ -n "$cuda_bin" ]] || die "no /usr/local/cuda-*/bin found - JetPack's CUDA toolkit isn't installed. Install the JetPack compute components (nvidia-l4t stack) before running this script."
+  [[ -n "$cuda_bin" ]] || die "CUDA toolkit missing; check the jetpack_compute stage and scripts/install-jetpack-compute.sh."
   local cuda_ver; cuda_ver="$(basename "$(dirname "$cuda_bin")" | sed 's/cuda-//')"
   sudo -u "$SERVICE_USER" python3 -m venv --system-site-packages "$EDGELLM_DIR/.venv"
   sudo -u "$SERVICE_USER" env PATH="$cuda_bin:$PATH" "$EDGELLM_PY" -m pip install --upgrade pip
@@ -425,9 +430,10 @@ do_smoke_test() {
 
 # ---------------------------------------------------------------------------------------
 main() {
-  stage preflight               do_preflight
+  do_preflight
   stage system_packages         do_system_packages
   stage fetch_repo_self         do_fetch_repo_self
+  stage jetpack_compute         do_jetpack_compute
   stage fetch_edgellm           do_fetch_edgellm
   stage edgellm_venv            do_edgellm_venv
   stage build_edgellm_runtime   do_build_edgellm_runtime

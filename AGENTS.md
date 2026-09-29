@@ -10,7 +10,16 @@ You do not need to understand TensorRT-Edge-LLM, Cosmos3-Edge's checkpoint forma
 to do this. The two scripts below encode all of that. Read this whole file before running
 anything - it tells you which parts are safe to just run and which ones need a human.
 
-## The one thing that needs a human
+## Optional JetPack preparation
+
+Keep an existing booting JetPack 7.2.1 / L4T 39.2.1 installation. Missing CUDA/TensorRT
+components are installed by demo setup; they are not a reason to reflash.
+For an explicitly requested fresh SD card from a Mac, use
+[the flash skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md) and
+[its workflow](docs/jetpack-sd-mac.md) before returning here. OS preparation needs no
+Hugging Face token. It does require identifying the card and macOS administrator authentication.
+
+## Model access needs a human
 
 **A Hugging Face access token that has accepted `nvidia/Cosmos3-Edge`'s gated-model
 license.** You cannot click "Agree" on a license on someone's behalf. If you don't have a

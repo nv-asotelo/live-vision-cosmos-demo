@@ -1,0 +1,62 @@
+# Optional JetPack SD preparation from a Mac
+
+Keep a working **JetPack 7.2.1 / L4T 39.2.1** installation. This step is only for a
+fresh card. After boot, `bootstrap.sh` installs missing CUDA 13.2 / TensorRT 10.16.2
+components before the demo build; OS-only media is intentionally not a full compute SDK.
+
+## Requirements and scope
+
+- Apple Silicon MacBook, macOS **15+**, **16 GB RAM**, **60 GiB free** on the build
+  cache volume, internet, Apple Command Line Tools (`xcode-select --install`),
+  [Homebrew](https://docs.brew.sh/Installation), and administrator
+  access. QEMU uses 8 GiB and four virtual CPUs. No laptop GPU or CUDA is required.
+- Writable **64 GB+ microSD**, built-in SD reader or a USB reader that reports removable
+  media. The selected card is erased. The tested nominal 64 GB card reports 62,883,102,720 bytes.
+- **Orin Nano Super 8 GB developer kit P3767-0005**, FAB 300, board revision T.1,
+  chip SKU D5, RAMCODE 2. This recipe is pinned to that hardware; it is not a generic Orin flasher.
+- Compatible **R39.2.1 QSPI firmware already installed**. The Mac card writer cannot
+  update the Jetson's QSPI. For an unprepared board or another module, follow
+  [NVIDIA's setup instructions](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/setup_bsp.html).
+
+## Run on the Mac, then boot the Orin
+
+```bash
+brew install python qemu zstd
+diskutil list
+./scripts/flash-jetpack-sd-mac.sh --disk /dev/diskN --erase
+```
+
+Replace `diskN` with the identified **whole SD disk**. `--erase` is explicit
+authorization; macOS then requests administrator authentication. Use `--dry-run`
+instead to build and validate without writing, or `--build-only` without `--disk`.
+
+The script downloads hash-pinned NVIDIA BSP/rootfs and Ubuntu 22.04 amd64 media,
+runs NVIDIA's SD image creator in a disposable QEMU VM, checks GPT/ext4 and the clean
+rootfs, then writes the card, verifies the entire image by SHA-256, and ejects it.
+The image contains no Cosmos3-Edge, Live Vision UI, model weights, precreated user,
+or deployment SSH keys. Nothing is passed through to the Jetson or its NVMe.
+This is a project integration of [NVIDIA's image-creation tools](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#flashing-to-an-sd-card), not an NVIDIA-supported Mac recovery-flash path.
+
+The first build can take an hour or more. Downloads and validated output are cached
+in `~/Library/Caches/live-vision-jetpack/7.2.1`; successful builds remove their VM.
+Failed builds retain a stopped VM and logs for diagnosis. `--cache-dir` selects another
+volume; `--image-dir` reuses a directory containing the generated `.img.zst` and `image.json`.
+Only the final writer is privileged, with an expanded image staged outside protected
+Documents/Desktop. The Mac's temporary volume also needs 11 GiB free for that image.
+
+After ejection, move the card to the powered-off Orin, select SD in its boot menu if
+needed, complete first-boot setup, and enable SSH. Confirm `/` is on `mmcblk0p1`,
+L4T reports R39 revision 2.1, and `df -h /` shows the expanded filesystem. Then
+return to the [demo Quickstart](../README.md#quickstart-automated-setup).
+
+## Validation
+
+Validation is pending completion of the fresh-card write and full readback. Image
+creation, GPT/ext4 checks, and the clean-rootfs scan have passed. SD boot and Live
+Vision execution on this fresh card have not been tested. The agent workflow is in
+[SKILL.md](../.agents/skills/flash-jetpack-sd-mac/SKILL.md).
+
+The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
+bytes used in this bring-up; they are not claimed as publisher-signed checksums.
+Ubuntu's pinned hash matches its published SHA256SUMS. Upstream licenses and
+acknowledgements are in [NOTICE.md](../NOTICE.md#mac-jetpack-sd-preparation).

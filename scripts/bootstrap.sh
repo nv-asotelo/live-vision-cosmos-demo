@@ -25,6 +25,10 @@ if [[ -z "$TARGET" ]]; then
   cat >&2 <<'USAGE'
 Usage: HF_TOKEN=hf_... ./scripts/bootstrap.sh user@orin-host-or-ip
 
+JetPack 7.2.1 / L4T 39.2.1 must already boot on the Orin. Keep an existing
+compatible installation. For a fresh SD card from a Mac, first follow
+docs/jetpack-sd-mac.md or run scripts/flash-jetpack-sd-mac.sh --help.
+
 Required env var:
   HF_TOKEN         Hugging Face access token that has accepted nvidia/Cosmos3-Edge's
                     license at https://huggingface.co/nvidia/Cosmos3-Edge (create a
@@ -53,6 +57,9 @@ REMOTE_UNAME="$(ssh -o ConnectTimeout=10 "$TARGET" 'uname -sm')" \
 [[ "$REMOTE_UNAME" == "Linux aarch64" ]] \
   || { echo "$TARGET reports '$REMOTE_UNAME' - this needs to be run against the Jetson Orin (Linux aarch64), not a laptop or a different device." >&2; exit 1; }
 echo "    ok: $REMOTE_UNAME"
+REMOTE_L4T="$(ssh "$TARGET" "dpkg-query -W -f='\${Version}' nvidia-l4t-core 2>/dev/null" || true)"
+[[ "$REMOTE_L4T" == 39.2.1-* ]] \
+  || { echo "JetPack 7.2.1 / L4T 39.2.1 is required before demo setup. See docs/jetpack-sd-mac.md for optional Mac SD preparation; existing compatible systems do not need reflashing." >&2; exit 1; }
 
 echo "==> copying this repo to $TARGET:$INSTALL_DIR"
 ssh "$TARGET" "sudo mkdir -p '$INSTALL_DIR' && sudo chown \$(whoami) '$INSTALL_DIR'"

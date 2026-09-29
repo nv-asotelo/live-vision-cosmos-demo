@@ -1,6 +1,6 @@
 # Notices
 
-This repository's own code (the `ui/`, `shim/`, `reachy/`, `systemd/` directories) is licensed
+This repository's own code (including `scripts/` and the agent skill) is licensed
 under Apache License 2.0 - see `LICENSE`. It builds on and talks to the third-party components
 below, each under its own license. None of this is legal advice; if you plan to redistribute this
 project further, verify current license terms for each component yourself.
@@ -62,6 +62,28 @@ Apache License 2.0.
 `reachy/reachy.py` is an independent REST client this project wrote against the robot's onboard
 daemon API; it is not part of Pollen Robotics' or Hugging Face's own SDK and is not published or
 endorsed by them.
+
+## Mac JetPack SD preparation
+
+The Mac orchestration, card writer, validation helpers, and agent skill are original
+Apache-2.0 code adapted from this project's Jetson bring-up workflow. Python helpers
+use only the standard library. No third-party source, OS image, NVIDIA binary, or
+model weight is redistributed with this workflow.
+
+Thanks to NVIDIA for Jetson Linux and its image-creation tools, and the QEMU, Ubuntu,
+Python, Zstandard, and Homebrew contributors for the host tooling:
+
+| Downloaded or separately installed component | License / acknowledgement |
+|---|---|
+| NVIDIA JetPack / Jetson Linux BSP and rootfs | NVIDIA's accompanying Jetson software terms and individual component licenses apply. The downloaded `jetson-disk-image-creator.sh` is marked `LicenseRef-NvidiaProprietary`; `l4t_flash_prerequisites.sh` is BSD-3-Clause. The build makes one local performance edit to the image creator's `dd` invocation (4 MiB blocks, flush, progress), preserving its full NVIDIA copyright/license header. No NVIDIA script is vendored here. [Official downloads](https://developer.nvidia.com/embedded/jetpack/downloads). |
+| QEMU | [GNU GPL version 2, with component-specific licenses](https://www.qemu.org/docs/master/about/license.html); QEMU is a trademark of Fabrice Bellard. |
+| Ubuntu 22.04 cloud image | Canonical and the included package authors; [individual package licenses apply](https://ubuntu.com/legal/intellectual-property-policy). Guest package copyright files are under `/usr/share/doc/*/copyright`. |
+| Python | [Python Software Foundation License and included component notices](https://docs.python.org/3/license.html). |
+| Zstandard | Meta Platforms, Inc. and affiliates; [BSD-3-Clause](https://github.com/facebook/zstd/blob/dev/LICENSE), alternatively GPL-2.0. |
+| Homebrew | Homebrew contributors; [BSD-2-Clause](https://github.com/Homebrew/brew/blob/master/LICENSE.txt). Used to install tools; not bundled. |
+
+Generated images retain the upstream packages and their licenses; the repository's
+Apache-2.0 license does not relicense those images or downloaded tools.
 
 ## Development
 
