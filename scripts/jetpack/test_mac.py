@@ -28,15 +28,21 @@ class MacDiagnosticsTests(unittest.TestCase):
         stages = []
 
         def expand_image(*args, **kwargs):
-            Path(args[-1]).write_bytes(b"test")
+            if args[0] == "/unused/zstd":
+                Path(args[-1]).write_bytes(b"test")
 
         class FailedHelper:
             returncode = 1
 
             def __init__(self, command, **kwargs):
-                stage = Path(command[1]).parent
+                self.assert_sudo(command)
+                stage = Path(command[4]).parent
                 stages.append(stage)
-                (stage / "write.log").write_text("Operation not permitted: /dev/rdisk4\n")
+                kwargs["stdout"].write("Operation not permitted: /dev/rdisk4\n")
+
+            @staticmethod
+            def assert_sudo(command):
+                assert command[:4] == ["/usr/bin/sudo", "-n", "/usr/bin/python3", "-u"]
 
             def poll(self):
                 return 1
@@ -46,6 +52,7 @@ class MacDiagnosticsTests(unittest.TestCase):
                 directory = Path(folder)
                 (directory / "image.json").write_text(json.dumps({"size_bytes": 4}))
                 with patch.object(mac, "run", side_effect=expand_image), \
+                     patch.object(mac.sys.stdin, "isatty", return_value=True), \
                      patch.object(mac.subprocess, "Popen", FailedHelper), redirect_stdout(io.StringIO()), \
                      self.assertRaisesRegex(RuntimeError, "Flash did not complete"):
                     mac.write_card(directory, "/dev/disk4", {}, "/unused/zstd")
@@ -56,6 +63,15 @@ class MacDiagnosticsTests(unittest.TestCase):
         finally:
             for stage in stages:
                 shutil.rmtree(stage)
+
+    def test_noninteractive_write_stops_before_staging_or_authentication(self):
+        with patch.object(mac.sys.stdin, "isatty", return_value=False), \
+             patch.object(mac.tempfile, "mkdtemp") as stage, \
+             patch.object(mac, "run") as run, \
+             self.assertRaisesRegex(RuntimeError, "Run the flash command in Terminal"):
+            mac.write_card(Path("unused"), "/dev/disk4", {}, "/unused/zstd")
+        stage.assert_not_called()
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

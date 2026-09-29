@@ -28,7 +28,8 @@ diskutil list
 ```
 
 Replace `diskN` with the identified **whole SD disk**. `--erase` is explicit
-authorization; macOS then requests administrator authentication. Use `--dry-run`
+authorization; run in Terminal and enter your Mac password at the `sudo` prompt.
+Allow removable-volume access if macOS requests it. Use `--dry-run`
 instead to build and validate without writing, or `--build-only` without `--disk`.
 
 The script downloads hash-pinned NVIDIA BSP/rootfs and Ubuntu 22.04 amd64 media,
@@ -42,12 +43,14 @@ The first build can take an hour or more. Downloads and validated output are cac
 in `~/Library/Caches/live-vision-jetpack/7.2.1`; successful builds remove their VM.
 Failed builds retain a stopped VM and logs for diagnosis. `--cache-dir` selects another
 volume; `--image-dir` reuses a directory containing the generated `.img.zst` and `image.json`.
-Only the final writer is privileged, with an expanded image staged outside protected
+Only the final writer uses `sudo`, with an expanded image staged outside protected
 Documents/Desktop. The Mac's temporary volume also needs 11 GiB free for that image.
 If macOS reports `Operation not permitted` for `/dev/rdiskN` after authentication,
-check **System Settings → Privacy & Security → Full Disk Access** for the launching
-terminal/app, and reopen it if requested. Administrator authentication and disk access
-are separate permissions ([Apple](https://support.apple.com/guide/security/controlling-app-access-to-files-secddd1d86a6/web)).
+check **System Settings → Privacy & Security → Files and Folders** for your terminal's
+removable-volume permission (Full Disk Access may be needed). Use normal Terminal
+`sudo`: AppleScript's administrator helper does not inherit an app's disk permission.
+Administrator authentication and disk access are separate permissions
+([Apple](https://support.apple.com/guide/security/controlling-app-access-to-files-secddd1d86a6/web)).
 Failed writes retain their staging directory and log; resolve the reported cause before retrying.
 
 After ejection, move the card to the powered-off Orin, select SD in its boot menu if

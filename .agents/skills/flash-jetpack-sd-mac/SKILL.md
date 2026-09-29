@@ -20,8 +20,11 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
    isolated Ubuntu amd64 VM; no Jetson USB connection is needed.
 3. If flashing this identified card is already authorized, run the same command
    with `--erase` instead of `--dry-run`. Otherwise explain the selected card and
-   obtain authorization before erasing. Let the user authenticate in macOS;
+   obtain authorization before erasing. Run in Terminal and let the user authenticate with `sudo`;
    never collect their password in chat. Keep the card inserted through readback.
+   For an agent without an interactive terminal, prepare the exact authorized command
+   for the user to run in Terminal. Do not use AppleScript administrator elevation:
+   its helper does not inherit the app's disk permission.
 4. A successful run writes `flash-receipt.json` under the reported image directory
    and ejects the card. Confirm its status and SHA-256. On any error, inspect the
    reported log and resolve the cause; do not retry a write automatically.

@@ -178,9 +178,10 @@ def main():
         except PermissionError as error:
             raise RuntimeError(
                 "macOS denied raw SD-device access after administrator authentication. "
-                "No image bytes were written. Check System Settings > Privacy & Security "
-                "for disk access granted to the terminal or app launching this command "
-                "(Full Disk Access may be required); reopen that app if macOS requests it. "
+                "No image bytes were written. Run from Terminal using sudo, allow "
+                "removable-volume access when macOS asks, and check System Settings > "
+                "Privacy & Security for that terminal's disk permissions. "
+                "AppleScript administrator helpers do not inherit the app's disk access. "
                 "Retry only after resolving the permission."
             ) from error
         with device:

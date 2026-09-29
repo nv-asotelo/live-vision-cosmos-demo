@@ -9,7 +9,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import shlex
 import shutil
 import socket
 import subprocess
@@ -181,8 +180,9 @@ def atomic_copy(source, destination):
 
 
 def write_card(image_dir, disk, target, zstd):
-    # The macOS privileged helper cannot reliably read Documents/Desktop. Stage in
-    # a private temporary directory instead of changing macOS privacy permissions.
+    require(sys.stdin.isatty(), "Run the flash command in Terminal so sudo can authenticate locally")
+    # Expand as the normal user; the writer needs only Apple's Python and a raw
+    # image. No Homebrew executable runs as root.
     stage = Path(tempfile.mkdtemp(prefix="live-vision-jetpack-", dir="/private/tmp"))
     success = False
     try:
@@ -198,17 +198,18 @@ def write_card(image_dir, disk, target, zstd):
         request = {"disk": disk, "target": target, "image": str(image), "manifest": str(stage / "image.json"),
                    "zstd": zstd, "receipt": str(receipt)}
         (stage / "request.json").write_text(json.dumps(request, indent=2))
-        # Use Apple's CLT interpreter and an already expanded file: no Homebrew
-        # executable needs to run in the privileged helper's security context.
-        command = shlex.join(["/usr/bin/python3", "-u", str(stage / "write_sd.py"),
-                              "--request", str(stage / "request.json"), "--write"])
-        command += " > " + shlex.quote(str(stage / "write.log")) + " 2>&1"
-        prompt = "Erase " + disk + " and write the clean JetPack-only SD image."
-        script = "with timeout of 14400 seconds\n  do shell script " + json.dumps(command)
-        script += " with administrator privileges with prompt " + json.dumps(prompt) + "\nend timeout\n"
-        (stage / "flash.applescript").write_text(script)
-        print("Authenticate in the macOS administrator prompt. Keep the card inserted until verification finishes.", flush=True)
-        process = subprocess.Popen(["osascript", str(stage / "flash.applescript")], start_new_session=True)
+        print("Authenticate with sudo in this terminal. Keep the card inserted until verification finishes.", flush=True)
+        # AppleScript's administrator helper is attributed to authtrampoline by
+        # TCC and does not inherit the launching app's removable-disk permission.
+        # Normal sudo retains the terminal's privacy context. Never capture a password.
+        run("/usr/bin/sudo", "-v")
+        command = ["/usr/bin/sudo", "-n", "/usr/bin/python3", "-u", str(stage / "write_sd.py"),
+                   "--request", str(stage / "request.json"), "--write"]
+        with (stage / "write.log").open("w") as output:
+            # A separate process group defers Ctrl-C until writing finishes while
+            # retaining the controlling terminal and its sudo timestamp.
+            process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
+                                       preexec_fn=os.setpgrp)
         offset = 0
         try:
             while process.poll() is None:
