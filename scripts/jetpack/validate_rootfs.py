@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Read-only validation of a pristine NVIDIA sample rootfs after apply_binaries."""
+"""Validate NVIDIA OS/drivers plus the original SD expansion helper; no demo."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -52,10 +53,21 @@ def validate(root):
     for name in ("Image", "initrd"):
         require((root / "boot" / name).stat().st_size > 0, "Missing boot " + name)
     require("root=/dev/mmcblk0p1" in (root / "boot/extlinux/extlinux.conf").read_text(), "Wrong root device")
+    helpers = Path(__file__).resolve().parent
+    for source, destination in (("expand_sd.py", "usr/local/sbin/jetpack-expand-sd.py"),
+                                ("jetpack-expand-sd.service", "etc/systemd/system/jetpack-expand-sd.service")):
+        require((root / destination).read_bytes() == (helpers / source).read_bytes(), "Missing or changed early SD expansion helper")
+    require(os.readlink(root / "etc/systemd/system/sysinit.target.requires/jetpack-expand-sd.service") ==
+            "../jetpack-expand-sd.service", "SD expansion must run before first-boot setup")
+    require(not (root / "var/lib/jetpack-sd-expanded").exists(), "Unexpected pre-completed SD expansion marker")
+    for tool in ("usr/bin/growpart", "usr/sbin/sfdisk", "usr/sbin/resize2fs"):
+        require((root / tool).is_file(), "Missing SD expansion tool: " + tool)
     return {"rootfs_validation_passed": True, "jetpack_version": "7.2.1",
             "jetson_linux_release": release, "ubuntu_version": "24.04",
             "board": "jetson-orin-nano-devkit-super", "excluded_application_matches": [],
             "precreated_users": [], "authorized_ssh_keys": [], "first_boot_target": "nv-oobe.target",
+            "sd_expansion_before_oobe": True,
+            "sd_expansion_helper_sha256": hashlib.sha256((helpers / "expand_sd.py").read_bytes()).hexdigest(),
             "package_set": "Jetson Linux OS and NVIDIA BSP drivers; full JetPack compute SDK not installed",
             "cosmos3_edge_installed": False, "live_vision_ui_installed": False,
             "full_jetpack_compute_sdk_installed": False}

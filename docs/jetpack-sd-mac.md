@@ -39,6 +39,8 @@ instead to build and validate without writing, or `--build-only` without `--disk
 The script downloads hash-pinned NVIDIA BSP/rootfs and Ubuntu 22.04 amd64 media,
 runs NVIDIA's SD image creator in a disposable QEMU VM, checks GPT/ext4 and the clean
 rootfs, then writes the card, verifies the entire image by SHA-256, and ejects it.
+New images include a small OS helper that expands the SD root before NVIDIA setup
+and swapfile creation. It preserves the APP partition's start/UUID and all boot partitions.
 The image contains no Cosmos3-Edge, Live Vision UI, model weights, precreated user,
 or deployment SSH keys. The builder VM has no USB or host-disk passthrough.
 This is a project integration of [NVIDIA's image-creation tools](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#flashing-to-an-sd-card), not an NVIDIA-supported Mac recovery-flash path.
@@ -47,6 +49,8 @@ The first build can take an hour or more. Downloads and validated output are cac
 in `~/Library/Caches/live-vision-jetpack/7.2.1`; successful builds remove their VM.
 Failed builds retain a stopped VM and logs for diagnosis. `--cache-dir` selects another
 volume; `--image-dir` reuses a directory containing the generated `.img.zst` and `image.json`.
+Cached images predating early SD expansion are rebuilt; an explicit `--image-dir`
+with an old manifest is rejected. An already-flashed card can be repaired without erasing it.
 Only the final writer uses `sudo`, with an expanded image staged outside protected
 Documents/Desktop. The Mac's temporary volume also needs 11 GiB free for that image.
 If macOS reports `Operation not permitted` for `/dev/rdiskN` after authentication,
@@ -76,6 +80,9 @@ The same command continues after verified ejection:
    `/dev/mmcblk0p1`, Ubuntu is 24.04, L4T is R39 revision 2.1, and both the root
    partition and filesystem use most of the card. It checks the flashed card's
    capacity and serial when available in the same run. An NVMe boot stops here.
+   If an older image still has a small/full root, the script expands the verified
+   SD in place using your local `sudo` authentication and reboots. After automatic
+   USB reconnection, log in again and press **Ctrl-]** in the same window.
 4. Only after those checks, it enables SSH; enter your new **Jetson** password
    at the local prompts. It checks USB/LAN reachability, pins the host key learned
    over the physical serial link, and verifies the same SD boot through SSH.
@@ -96,6 +103,8 @@ not require QEMU, Zstandard, an SD reader, or the build's RAM/disk capacity.
 Use `--serial-port /dev/cu.usbmodemXXXX` if multiple Jetsons are connected, or
 `--host <Jetson-LAN-IP>` to select an SSH address. **Ctrl-Q** stops the console.
 After an interrupted setup or a required reboot, run `--first-boot-only` again.
+Use one setup window at a time. For the earlier **"root filesystem has not expanded"**
+error, update this checkout and use this resume command; no reflash is needed.
 
 **Existing static IP / failed DHCP:** a fresh card does not inherit network settings
 from the old installation. If the fixed IP is a **router DHCP reservation**, keep
@@ -142,12 +151,14 @@ card. See the [validation record](validation/jetpack-sd-mac-2026-09-29.json).
 Image creation from fresh NVIDIA BSP/rootfs archives, GPT/ext4 checks, and the
 clean-rootfs scan passed in the bring-up workflow. The new wrapper's fresh VM
 bootstrap was tested separately; its complete cold build has not been rerun.
-On the connected Orin, NVIDIA USB discovery and the serial **"Press ENTER to start
-System Configuration"** prompt were observed. The continuation's automated tests
-cover serial transport, device selection/reconnection, refusal of an NVMe boot,
-unexpanded filesystems, SSH identity, and receipts only after success. Physical
-SD root/expansion/SSH verification, compute installation, and Live Vision remain
-pending; a first-boot prompt alone does not establish those results.
+On the connected Orin, account/network setup and SD boot on `/dev/mmcblk0p1` with
+L4T 39.2.1 passed. The initial image's approximately 8 GB root filled during setup;
+the USB continuation expanded it to approximately 57 GiB and successfully rebooted.
+SSH verification is still pending. New images now include expansion before NVIDIA
+setup; that early-boot service and a complete fresh image build have not yet been
+tested on hardware. Regression tests cover serial transport, SD partition
+preservation, wrong-root refusal, resumable expansion, SSH identity, and receipts
+only after success. Compute installation and Live Vision remain outside this validation.
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
 bytes used in this bring-up; they are not claimed as publisher-signed checksums.

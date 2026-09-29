@@ -100,7 +100,7 @@ class MacWorkflowTests(unittest.TestCase):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
                 cache = Path(folder)
                 (cache / "image").mkdir()
-                (cache / "image/image.json").write_text("{}")
+                (cache / "image/image.json").write_text('{"sd_expansion_before_oobe":true}')
                 target = {"MediaName": "SD", "TotalSize": 62883102720, "BusProtocol": "Secure Digital", "serial": "0x12345678"}
                 with patch.object(mac, "target_identity", return_value=target), \
                      patch.object(mac, "validate_image"), patch.object(mac.subprocess, "run") as command, \
@@ -119,6 +119,21 @@ class MacWorkflowTests(unittest.TestCase):
                                                      {"serial": "0x12345678", "TotalSize": target["TotalSize"]})
                     else:
                         boot.assert_not_called()
+
+    def test_old_cached_image_is_rebuilt_before_validation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cache = Path(folder)
+            output = cache / "image"
+            output.mkdir()
+            (output / "image.json").write_text('{"rootfs_validation_passed":true}')
+            with patch.object(mac, "build_image") as build, \
+                 patch.object(mac, "validate_image") as validate, \
+                 patch.object(mac.subprocess, "run") as command, \
+                 patch.object(mac.shutil, "which", return_value="/unused/zstd"):
+                command.return_value.returncode = 0
+                self.invoke(cache, "--build-only")
+                build.assert_called_once_with(cache.resolve(), output.resolve())
+                validate.assert_called_once()
 
 
 if __name__ == "__main__":

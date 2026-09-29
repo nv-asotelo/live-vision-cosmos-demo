@@ -110,6 +110,9 @@ def validate_gpt(prefix, size):
 
 def validate_image(image, manifest, zstd):
     require(manifest.get("rootfs_validation_passed") is True, "Missing rootfs validation")
+    require(manifest.get("sd_expansion_before_oobe") is True,
+            "Image predates SD expansion before first boot. Build a fresh image with --build-only. "
+            "For a card already flashed, recover with --first-boot-only instead of reflashing.")
     require(manifest.get("excluded_application_matches") == [], "Unexpected demo payload in image")
     require(manifest.get("jetpack_version") == "7.2.1", "Expected JetPack 7.2.1")
     require(manifest.get("board") == "jetson-orin-nano-devkit-super", "Unsupported board image")

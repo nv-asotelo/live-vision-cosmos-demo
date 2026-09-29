@@ -54,15 +54,15 @@ diskutil list                       # identify the 64 GB+ SD card
 This optional route targets the **Orin Nano Super 8 GB developer kit (P3767-0005)**
 with compatible R39.2.1 QSPI firmware already installed. It prepares OS and NVIDIA drivers
 only. The same command writes/verifies/ejects the card, waits while you move it to the
-Orin, opens USB first-boot setup, then checks SD boot, filesystem expansion, and SSH.
+Orin, expands the root filesystem, opens USB first-boot setup, and verifies SD boot and SSH.
 Use the Orin's power supply and wired Ethernet to your router; select **Ethernet PCI**
 in first-boot network setup ([static IP / DHCP fallback](docs/jetpack-sd-mac.md#first-boot-from-the-mac)). Complete NVIDIA's license/account
 prompts locally; there are no default credentials. Already flashed? Resume with
 `./scripts/flash-jetpack-sd-mac.sh --first-boot-only`. [Workflow and USB limitations](docs/jetpack-sd-mac.md).
 Validated on a **fresh 64 GB SD card** using this script and
 [agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md): writing and full image
-readback passed on 2026-09-29. The USB first-boot prompt was observed; SD root,
-expansion, and SSH verification are still pending.
+readback, SD boot, and in-place filesystem expansion/reboot passed on 2026-09-29.
+SSH verification and the new image's expansion before NVIDIA setup remain pending.
 See the [Mac workflow and validation record](docs/jetpack-sd-mac.md) for scope.
 
 Starting point: a Jetson Orin with **JetPack already flashed and booting**, reachable over

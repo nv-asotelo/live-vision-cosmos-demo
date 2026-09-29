@@ -89,7 +89,7 @@ def linux_vm(cache, downloads):
         downloads / "jammy-server-cloudimg-amd64.img", disk, "80G")
     helpers = directory / "helpers"
     helpers.mkdir()
-    for name in ("build.sh", "validate_rootfs.py", "release.json"):
+    for name in ("build.sh", "validate_rootfs.py", "release.json", "expand_sd.py", "jetpack-expand-sd.service"):
         shutil.copy2(HERE / name, helpers / name)
     option_path = lambda p: str(p).replace(",", ",,")
     args = ["qemu-system-x86_64", "-name", "jetpack-sd-builder", "-machine", "q35",
@@ -286,7 +286,9 @@ def main():
         output = args.image_dir.expanduser().resolve() if args.image_dir else cache / "image"
         if args.image_dir:
             require((output / "image.json").is_file(), "--image-dir must contain image.json and the .img.zst")
-        elif not (output / "image.json").is_file():
+        elif not (output / "image.json").is_file() or not json.loads(
+                (output / "image.json").read_text()).get("sd_expansion_before_oobe"):
+            print("Building image with SD expansion before NVIDIA first-boot setup.", flush=True)
             build_image(cache, output)
         manifest = json.loads((output / "image.json").read_text())
         validate_image(output / IMAGE_NAME, manifest, zstd)

@@ -50,14 +50,27 @@
   "limits": [
     "Fresh BSP/rootfs image creation and validation passed using the bring-up scripts. The public one-shot used that cached image.",
     "A fresh public-wrapper VM bootstrap passed; the complete cold image build through the new wrapper has not been run.",
-    "SD boot, first-boot filesystem expansion, compute installation and Live Vision execution on this card have not been tested."
+    "SD boot, in-place APP/ext4 expansion and reboot passed during the first-boot follow-up. Authenticated SSH, compute installation and Live Vision execution remain untested.",
+    "The early-expansion service added to future image builds has not yet been exercised in a fresh hardware boot; the same expansion helper passed during USB recovery."
   ],
   "first_boot_followup": {
     "validation_date": "2026-09-29",
     "nvidia_usb_serial_discovery": true,
     "nvidia_system_configuration_prompt_observed": true,
     "guided_console_network_setup_observed": true,
-    "automated_regression_tests_passed": 27,
-    "sd_root_expansion_and_ssh_verification": "pending interactive first-boot completion"
+    "automated_regression_tests_passed": 36,
+    "sd_root_expansion_and_ssh_verification": "SD root and expansion passed; authenticated SSH verification pending local login",
+    "root_device": "/dev/mmcblk0p1",
+    "ubuntu_version": "24.04",
+    "l4t_version": "39.2.1",
+    "sd_root_verified": true,
+    "initial_root_partition_bytes": 8563720192,
+    "initial_root_filesystem_full": true,
+    "in_place_expansion_verified": true,
+    "expanded_root_partition_bytes": 61275618816,
+    "resize2fs_reported_blocks": 14959867,
+    "resize2fs_block_size_bytes": 4096,
+    "reboot_and_same_usb_device_reconnection": true,
+    "expansion_helper_sha256": "ca2074e03d941d5c274619ab3fec4e7125fc68b007f79fc141b2e4675e2d2542"
   }
 }

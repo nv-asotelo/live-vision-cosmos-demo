@@ -65,13 +65,13 @@ endorsed by them.
 
 ## Mac JetPack SD preparation
 
-The Mac orchestration, card writer, USB console/first-boot and validation helpers, and agent skill are original
+The Mac orchestration, card writer, SD expansion, USB console/first-boot and validation helpers, and agent skill are original
 Apache-2.0 code adapted from this project's Jetson bring-up workflow. Python helpers
 use only the standard library. No third-party source, OS image, NVIDIA binary, or
 model weight is redistributed with this workflow.
 
 Thanks to NVIDIA for Jetson Linux and its image-creation tools, and the QEMU, Ubuntu,
-Python, OpenSSH, Zstandard, and Homebrew contributors for the host tooling:
+Python, OpenSSH, cloud-utils, e2fsprogs, util-linux, Zstandard, and Homebrew contributors:
 
 | Downloaded or separately installed component | License / acknowledgement |
 |---|---|
@@ -80,6 +80,7 @@ Python, OpenSSH, Zstandard, and Homebrew contributors for the host tooling:
 | Ubuntu 22.04 cloud image | Canonical and the included package authors; [individual package licenses apply](https://ubuntu.com/legal/intellectual-property-policy). Guest package copyright files are under `/usr/share/doc/*/copyright`. |
 | Python | [Python Software Foundation License and included component notices](https://docs.python.org/3/license.html). |
 | OpenSSH | The Mac's separately supplied SSH client/key scanner and Ubuntu's SSH server; [OpenSSH's BSD-style and component license notices](https://github.com/openssh/openssh-portable/blob/master/LICENCE) apply. No OpenSSH source is bundled. |
+| SD growth tools included in Ubuntu | `growpart`: Canonical Ltd. and Hewlett-Packard Development Company, L.P., [GPL-3.0](https://github.com/canonical/cloud-utils/blob/main/bin/growpart). `resize2fs`: Theodore Ts'o and e2fsprogs contributors, [GPL-2.0 with library-specific notices](https://github.com/tytso/e2fsprogs/blob/master/NOTICE). `sfdisk`: util-linux contributors, [GPL-1.0-or-later](https://github.com/util-linux/util-linux/blob/master/disk-utils/sfdisk.c); other util-linux components have [their own licenses](https://github.com/util-linux/util-linux/blob/master/README.licensing). These programs are invoked, not copied into this repository; installed notices remain under `/usr/share/doc/*/copyright`. |
 | Zstandard | Meta Platforms, Inc. and affiliates; [BSD-3-Clause](https://github.com/facebook/zstd/blob/dev/LICENSE), alternatively GPL-2.0. |
 | Homebrew | Homebrew contributors; [BSD-2-Clause](https://github.com/Homebrew/brew/blob/master/LICENSE.txt). Used to install tools; not bundled. |
 

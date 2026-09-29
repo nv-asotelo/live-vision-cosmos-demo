@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=Expand JetPack SD root before first-boot configuration
+DefaultDependencies=no
+Requires=systemd-remount-fs.service
+After=systemd-remount-fs.service
+Before=sysinit.target cloud-init-local.service nv-oobe.service nvfb-swapfile.service
+ConditionPathExists=!/var/lib/jetpack-sd-expanded
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/sbin/jetpack-expand-sd.py --expand --mark-complete
+RemainAfterExit=yes
+TimeoutStartSec=300
+
+[Install]
+RequiredBy=sysinit.target

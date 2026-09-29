@@ -15,6 +15,12 @@ cd Linux_for_Tegra
 export DEBIAN_FRONTEND=noninteractive
 ./tools/l4t_flash_prerequisites.sh
 ./apply_binaries.sh
+# Expand the small APP partition before OOBE/swapfile creation can fill it.
+# These are original OS-preparation helpers; no demo, account, or SSH key is added.
+install -D -m 0755 /mnt/helpers/expand_sd.py rootfs/usr/local/sbin/jetpack-expand-sd.py
+install -D -m 0644 /mnt/helpers/jetpack-expand-sd.service rootfs/etc/systemd/system/jetpack-expand-sd.service
+mkdir -p rootfs/etc/systemd/system/sysinit.target.requires
+ln -s ../jetpack-expand-sd.service rootfs/etc/systemd/system/sysinit.target.requires/jetpack-expand-sd.service
 # Adapt only the download-local copy; retain NVIDIA's header and license in full.
 python3 - <<'PY'
 from pathlib import Path

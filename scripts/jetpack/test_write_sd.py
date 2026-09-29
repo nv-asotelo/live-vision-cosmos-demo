@@ -31,6 +31,7 @@ class SDWriterTests(unittest.TestCase):
                      "DeviceTreePath": "test/sd-reader", "MediaName": "Test SD"}
         self.blob = image_bytes()
         self.manifest = {"rootfs_validation_passed": True, "excluded_application_matches": [],
+                         "sd_expansion_before_oobe": True,
                          "jetpack_version": "7.2.1", "board": "jetson-orin-nano-devkit-super",
                          "gpt_verification_passed": True, "ext4_verification_passed": True,
                          "size_bytes": len(self.blob), "sha256": hashlib.sha256(self.blob).hexdigest()}
@@ -66,6 +67,11 @@ class SDWriterTests(unittest.TestCase):
             image.write_bytes(self.blob[:-1] + b"x")
             with self.assertRaisesRegex(RuntimeError, "SHA-256"):
                 writer.validate_image(image, self.manifest, "/unused/zstd")
+
+    def test_old_image_without_early_expansion_is_refused(self):
+        old = {**self.manifest, "sd_expansion_before_oobe": False}
+        with self.assertRaisesRegex(RuntimeError, "predates SD expansion"):
+            writer.validate_image(Path("unused.img"), old, "/unused/zstd")
 
     def test_partial_writes_are_completed(self):
         class PartialWriter(io.BytesIO):

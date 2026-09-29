@@ -163,20 +163,30 @@ def user_console(fd):
 
 
 def receive_marker(fd, marker, timeout, interactive=False):
-    deadline, buffered = time.monotonic() + timeout, b""
+    deadline, buffered, displayed = time.monotonic() + timeout, b"", 0
     prefix = marker.encode()
     with raw_terminal() as keyboard:
         while time.monotonic() < deadline:
             ready, _, _ = select.select([fd, keyboard] if interactive else [fd], [], [], 1)
             if fd in ready:
                 data = read_serial(fd)
-                display(data)
                 buffered += data.replace(b"\r", b"\n")
                 while b"\n" in buffered:
                     line, buffered = buffered.split(b"\n", 1)
                     if line.startswith(prefix):
                         return line[len(prefix):].decode("utf-8")
-                buffered = buffered[-65536:]
+                    if interactive:
+                        display(line[displayed:] + b"\r\n")
+                    displayed = 0
+                # Show native sudo prompts immediately, even without a newline,
+                # while keeping transport markers and machine-readable JSON out
+                # of the user's setup flow.
+                if interactive and not (buffered.startswith(prefix) or prefix.startswith(buffered)):
+                    display(buffered[displayed:])
+                    displayed = len(buffered)
+                if len(buffered) > 65536:
+                    displayed = max(0, displayed - (len(buffered) - 65536))
+                    buffered = buffered[-65536:]
             if interactive and keyboard in ready:
                 data = os.read(keyboard, 4096)
                 if not data or b"\x11" in data:
@@ -188,7 +198,8 @@ def receive_marker(fd, marker, timeout, interactive=False):
 
 
 def probe_payload(marker, enable_ssh=False, expected=None):
-    source = (HERE / "verify_orin.py").read_bytes() + (
+    source = ("EXPAND_SD_SOURCE=" + repr((HERE / "expand_sd.py").read_bytes()) + "\n").encode() + \
+        (HERE / "verify_orin.py").read_bytes() + (
         "\nemit_result(" + repr(marker) + "," + repr(enable_ssh) + "," + repr(expected or {}) + ")\n").encode()
     return base64.b64encode(zlib.compress(source)).decode()
 
@@ -210,16 +221,22 @@ def serial_verify(fd, expected=None):
     handshake = token + "_SHELL"
     marker = token + "_RESULT:"
     payload = probe_payload(marker, True, expected)
-    require(len(payload) < 4000, "Verification payload exceeds serial line limit")
-    # The short launcher proves we are at a shell before sending Python code.
+    # The launcher proves Python is ready before sending each acknowledged chunk.
     # The subshell restores the Jetson's echo even on a failed check or Ctrl-C.
     # sudo keeps the real TTY; input()/base64 is only for our source, never passwords.
-    loader = "import base64,zlib;exec(zlib.decompress(base64.b64decode(input())))"
-    launcher = "(_lv_tty=$(stty -g); trap 'stty \"$_lv_tty\"' EXIT; stty -echo; printf '\\n%s\\n' " + \
-               shlex.quote(handshake) + "; python3 -c " + shlex.quote(loader) + ")"
+    ack = token + "_CHUNK"
+    loader = ("import base64,zlib\nprint(" + repr("\n" + handshake) + ",flush=True)\nchunks=[]\n"
+              "while True:\n    chunk=input()\n    if chunk=='.': break\n    chunks.append(chunk)\n"
+              "    print(" + repr("\n" + ack) + ",flush=True)\n"
+              "exec(zlib.decompress(base64.b64decode(''.join(chunks))))")
+    launcher = "(_lv_tty=$(stty -g); trap 'stty \"$_lv_tty\"' EXIT; stty -echo; python3 -c " + shlex.quote(loader) + ")"
     send(fd, ("\r" + launcher + "\r").encode())
     receive_marker(fd, handshake, 10)
-    send(fd, (payload + "\r").encode())
+    # Short physical lines avoid canonical TTY input limits as the helper grows.
+    for offset in range(0, len(payload), 512):
+        send(fd, (payload[offset:offset + 512] + "\r").encode())
+        receive_marker(fd, ack, 10)
+    send(fd, b".\r")
     return decode_result(receive_marker(fd, marker, 300, interactive=True))
 
 
@@ -262,7 +279,8 @@ def ssh_verify(report, host, directory, expected=None):
         "-o", "HostKeyAlgorithms=ssh-ed25519", "-o", "UpdateHostKeys=no", "-o", "ClearAllForwardings=yes",
         "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3",
         "-l", report["username"], host, probe_command(marker, expected=expected)],
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True, check=True)
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
+    require(result.returncode == 0, "SSH verification failed. Check the authentication/network error above, then resume with --first-boot-only.")
     values = [line[len(marker):] for line in result.stdout.splitlines() if line.startswith(marker)]
     require(len(values) == 1, "SSH did not return a boot verification result")
     verified = decode_result(values[0])
@@ -285,6 +303,11 @@ def first_boot(cache, serial_port=None, host=None, expected=None):
             with serial_connection(device["port"]) as fd:
                 user_console(fd)
                 report = serial_verify(fd, expected)
+                if report.get("reboot_required"):
+                    print("\nSD expanded; waiting for the requested reboot, then log in again.\n", flush=True)
+                    # Reboot disconnects USB. Keep password entry local if sudo
+                    # needs it again, then reconnect through the existing handler.
+                    receive_marker(fd, "REBOOT_DOES_NOT_RETURN_A_MARKER", 90, interactive=True)
             break
         except (Disconnected, FileNotFoundError):
             print("\nUSB restarted. Waiting for the same Jetson to reconnect...", flush=True)

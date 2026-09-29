@@ -87,8 +87,22 @@ class BootSafetyTests(unittest.TestCase):
         with patch.object(orin, "snapshot", return_value=report), \
              patch.object(orin.Path, "read_text", lambda path: files[str(path)]), \
              patch.object(orin.subprocess, "run") as mutation, self.assertRaisesRegex(RuntimeError, "expanded"):
-            orin.verify(True)
+            orin.verify(False)
         mutation.assert_not_called()
+
+    def test_failed_growth_never_enables_ssh(self):
+        report = ready_report()
+        files = {"/sys/class/block/mmcblk0/size": str(report["card_capacity_bytes"] // 512),
+                 "/sys/class/block/mmcblk0p1/size": str(8 * 1024**3 // 512),
+                 "/sys/class/block/mmcblk0/device/serial": report["sd_serial"]}
+        with patch.object(orin, "snapshot", return_value=report), \
+             patch.object(orin.Path, "read_text", lambda path: files[str(path)]), \
+             patch.dict(orin.__dict__, {"EXPAND_SD_SOURCE": b"# fixture"}), \
+             patch.object(orin.subprocess, "run", side_effect=RuntimeError("growth failed")) as mutation, \
+             redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, "growth failed"):
+            orin.verify(True)
+        self.assertEqual(mutation.call_count, 1)
+        self.assertEqual(mutation.call_args.args[0][:3], ["sudo", "/usr/bin/python3", "-c"])
 
 
 class SerialTransportTests(unittest.TestCase):
@@ -105,7 +119,8 @@ class SerialTransportTests(unittest.TestCase):
 
                 def payload(marker, *args):
                     result = {"ok": ok, "report": {"transport": "passed"}, "error": "expected test failure"}
-                    source = "print('\\n' + " + repr(marker + json.dumps(result)) + ", flush=True)"
+                    source = "print('\\n' + " + repr(marker + json.dumps(result)) + ", flush=True)\n#" + \
+                             base64.b64encode(os.urandom(6000)).decode()
                     return base64.b64encode(zlib.compress(source.encode())).decode()
 
                 try:
@@ -133,9 +148,9 @@ class SerialTransportTests(unittest.TestCase):
     def test_shipping_probe_fits_serial_line_and_preserves_source(self):
         payload = boot.probe_payload("JETPACK_" + "f" * 24 + "_RESULT:", True,
                                      {"serial": "0x12345678", "TotalSize": 62883102720})
-        self.assertLess(len(payload), 4000)
+        self.assertGreater(len(payload), 4000)  # Exercises the need for chunking.
         decoded = zlib.decompress(base64.b64decode(payload))
-        self.assertTrue(decoded.startswith((boot.HERE / "verify_orin.py").read_bytes()))
+        self.assertIn((boot.HERE / "verify_orin.py").read_bytes(), decoded)
         compile(decoded, "serial-probe", "exec")
 
 
@@ -169,7 +184,7 @@ class SshTests(unittest.TestCase):
 
 class ReceiptTests(unittest.TestCase):
     @contextmanager
-    def workflow(self, cache, fail_ssh=False, disconnect=False):
+    def workflow(self, cache, fail_ssh=False, disconnect=False, expansion_reboot=False):
         report = ready_report()
         device = {"port": "/dev/cu.usbmodemTEST", "serial": "same-jetson", "product": "Linux for Tegra"}
         with patch.object(boot.sys.stdin, "isatty", return_value=True), \
@@ -177,7 +192,9 @@ class ReceiptTests(unittest.TestCase):
              patch.object(boot, "wait_for_port", return_value=device) as wait, \
              patch.object(boot, "serial_connection", lambda port: nullcontext(99)), \
              patch.object(boot, "user_console", side_effect=[boot.Disconnected(), None] if disconnect else None), \
-             patch.object(boot, "serial_verify", return_value=report), \
+             patch.object(boot, "serial_verify", return_value=report,
+                          side_effect=[{**report, "reboot_required": True}, report] if expansion_reboot else None), \
+             patch.object(boot, "receive_marker", side_effect=boot.Disconnected()), \
              patch.object(boot, "find_ssh_host", return_value="192.168.55.1"), \
              patch.object(boot, "ssh_verify", side_effect=RuntimeError("SSH failed") if fail_ssh else None,
                           return_value=report):
@@ -188,6 +205,15 @@ class ReceiptTests(unittest.TestCase):
             with self.workflow(folder, fail_ssh=True), self.assertRaisesRegex(RuntimeError, "SSH failed"):
                 boot.first_boot(Path(folder))
             self.assertEqual(list(Path(folder).rglob("*receipt*")), [])
+
+    def test_expansion_reboot_reconnects_before_ssh_and_receipt(self):
+        with tempfile.TemporaryDirectory() as folder, redirect_stdout(io.StringIO()):
+            with self.workflow(folder, expansion_reboot=True) as wait:
+                receipt = boot.first_boot(Path(folder))
+                self.assertEqual(wait.call_count, 2)
+                wait.assert_called_with(serial="same-jetson")
+            self.assertTrue(receipt["sd_boot_verified"])
+            self.assertNotIn("reboot_required", receipt)
 
     def test_reconnect_pins_device_and_success_receipt_has_no_identifiers(self):
         with tempfile.TemporaryDirectory() as folder, redirect_stdout(io.StringIO()):

@@ -20,6 +20,8 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
    Otherwise use `--disk /dev/diskN --dry-run` to build/cache and validate without
    writing when a preflight is needed. The first build can take an hour or more;
    its isolated Ubuntu VM has no Jetson USB or host-disk passthrough.
+   New images expand the SD before NVIDIA setup. The builder invalidates older
+   cached images; never fabricate the manifest flag to make an old image pass.
 3. If flashing this identified card is already authorized, run
    `./scripts/flash-jetpack-sd-mac.sh --disk /dev/diskN --erase`. It validates before
    writing and continues into first boot. Otherwise explain the selected card and
@@ -38,6 +40,7 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
 5. The same Terminal session waits for the user to move the card to the powered-off
    Orin and connect USB-C data, Ethernet, and normal power (no monitor/recovery jumper).
    It discovers NVIDIA serial and reconnects to that Jetson after USB restarts.
+   Keep one setup window active; resume that window instead of opening duplicates.
    Have the user complete NVIDIA license/account prompts locally, log in, and press
    **Ctrl-]** at the Linux shell. Never enter/collect passwords or accept licenses
    for them. There are no default credentials.
@@ -50,6 +53,10 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
 6. The script verifies SD root, L4T 39.2.1, filesystem expansion, and card identity
    when available before enabling SSH; an NVMe boot is a stop, not permission to
    modify NVMe. It then verifies SSH against the public host key obtained over USB.
+   An older image with a small/full root is repaired in place after SD identity and
+   partition-layout checks. Let the user authenticate locally; the script grows
+   only the SD APP partition/filesystem and reboots. After reconnecting, have the
+   user log in again and press **Ctrl-]**. Do not reflash or remove partition guards.
    Require `JETPACK_READY` and `first-boot-receipt.json` before claiming verified
    first boot. Keep flash/readback, Linux setup prompt, SD root/expansion, and demo
    validation distinct. Failure can resume with `--first-boot-only`; never reflash

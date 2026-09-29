@@ -4,6 +4,7 @@
 Transported in memory by first_boot.py. No agent, credentials, or demo files are
 installed. Keep this helper independent of Mac modules and third-party packages.
 """
+import base64
 import ipaddress
 import json
 import os
@@ -12,6 +13,7 @@ import platform
 import pwd
 import re
 import subprocess
+import zlib
 
 
 def require(condition, message):
@@ -52,16 +54,24 @@ def validate_boot(report):
             "Finish NVIDIA first-boot setup and log in with your new non-root account")
 
 
-def validate_card(report, expected):
+def validate_card_identity(report, expected):
     require(report["card_capacity_bytes"] >= 60_000_000_000, "Expected a 64 GB or larger SD card")
     if expected.get("TotalSize"):
         require(report["card_capacity_bytes"] == expected["TotalSize"], "SD capacity differs from the flashed card")
     if expected.get("serial"):
         require(int(report["sd_serial"], 16) == int(expected["serial"], 16),
                 "This is a different SD card from the one just flashed")
-    require(0 <= report["card_capacity_bytes"] - report["root_partition_bytes"] <= 4 * 1024**3 and
-            report["filesystem_size_bytes"] >= report["root_partition_bytes"] * 0.90,
-            "The root filesystem has not expanded to use the SD card. Finish setup and reboot, then resume with --first-boot-only.")
+
+
+def expanded(report):
+    return (0 <= report["card_capacity_bytes"] - report["root_partition_bytes"] <= 4 * 1024**3 and
+            report["filesystem_size_bytes"] >= report["root_partition_bytes"] * 0.90)
+
+
+def validate_card(report, expected):
+    validate_card_identity(report, expected)
+    require(expanded(report),
+            "The root filesystem has not expanded to use the SD card. Resume with --first-boot-only to repair it over USB.")
 
 
 def verify(enable_ssh=False, expected=None):
@@ -72,13 +82,35 @@ def verify(enable_ssh=False, expected=None):
         "root_partition_bytes": int(Path("/sys/class/block/mmcblk0p1/size").read_text()) * 512,
         "sd_serial": Path("/sys/class/block/mmcblk0/device/serial").read_text().strip(),
     })
+    validate_card_identity(report, expected or {})
+    if enable_ssh and not expanded(report):
+        print("The SD root is still small. Expanding this verified SD in place; enter your Jetson password if prompted.", flush=True)
+        source = globals().get("EXPAND_SD_SOURCE")
+        require(source, "Missing SD expansion helper")
+        payload = base64.b64encode(zlib.compress(source)).decode()
+        identity = {"TotalSize": report["card_capacity_bytes"], "serial": report["sd_serial"]}
+        command = "import base64,zlib;ns={'__name__':'jetpack_expand_sd'};exec(zlib.decompress(base64.b64decode(" + \
+                  repr(payload) + ")),ns);ns['expand'](" + repr(identity) + ")"
+        try:
+            subprocess.run(["sudo", "/usr/bin/python3", "-c", command], check=True)
+        except subprocess.CalledProcessError:
+            raise RuntimeError("SD expansion failed; inspect the error above. No SSH changes were made.") from None
+        report["root_partition_bytes"] = int(Path("/sys/class/block/mmcblk0p1/size").read_text()) * 512
+        fs = os.statvfs("/")
+        report["filesystem_size_bytes"] = fs.f_blocks * fs.f_frsize
+        validate_card(report, expected or {})
+        # The old small image may have filled while OOBE created its swapfile.
+        # A reboot lets those first-boot services retry with space available.
+        report["reboot_required"] = True
+        return report
     validate_card(report, expected or {})
     if enable_ssh:
         print("SD boot, L4T 39.2.1, and filesystem expansion passed. Enabling SSH.\n"
               "If prompted, enter your Jetson password in this terminal.", flush=True)
         # sudo reads directly from the Jetson TTY. Never use -S or pass a password.
         subprocess.run(["sudo", "/bin/sh", "-c",
-                        "/usr/bin/ssh-keygen -A && /usr/bin/systemctl enable --now ssh"], check=True)
+                        "/usr/bin/ssh-keygen -A && /usr/bin/systemctl reset-failed ssh.service ssh.socket && "
+                        "/usr/bin/systemctl enable --now ssh"], check=True)
     require(output("systemctl", "is-active", "ssh") == "active", "SSH service is not active")
     key = Path("/etc/ssh/ssh_host_ed25519_key.pub").read_text().split()
     require(len(key) >= 2 and key[0] == "ssh-ed25519", "Missing Ed25519 SSH host public key")
@@ -103,3 +135,6 @@ def emit_result(marker, enable_ssh=False, expected=None):
     except Exception as error:
         result = {"ok": False, "error": str(error)}
     print("\n" + marker + json.dumps(result, separators=(",", ":")), flush=True)
+    if result.get("ok") and result["report"].get("reboot_required"):
+        print("SD expanded. Rebooting to let first-boot services retry; the Mac will reconnect.", flush=True)
+        subprocess.run(["sudo", "/usr/bin/systemctl", "reboot"], check=True)
