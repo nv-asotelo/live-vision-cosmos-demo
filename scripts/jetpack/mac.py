@@ -202,14 +202,12 @@ def write_card(image_dir, disk, target, zstd):
         # AppleScript's administrator helper is attributed to authtrampoline by
         # TCC and does not inherit the launching app's removable-disk permission.
         # Normal sudo retains the terminal's privacy context. Never capture a password.
-        run("/usr/bin/sudo", "-v")
-        command = ["/usr/bin/sudo", "-n", "/usr/bin/python3", "-u", str(stage / "write_sd.py"),
+        command = ["/usr/bin/sudo", "/usr/bin/python3", "-u", str(stage / "write_sd.py"),
                    "--request", str(stage / "request.json"), "--write"]
         with (stage / "write.log").open("w") as output:
-            # A separate process group defers Ctrl-C until writing finishes while
-            # retaining the controlling terminal and its sudo timestamp.
-            process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
-                                       preexec_fn=os.setpgrp)
+            # Keep the terminal's process group: changing it breaks macOS sudo's
+            # credential context. sudo reads its password directly from /dev/tty.
+            process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT)
         offset = 0
         try:
             while process.poll() is None:
@@ -231,7 +229,7 @@ def write_card(image_dir, disk, target, zstd):
             success = True
         except KeyboardInterrupt:
             # Do not remove the image while the privileged writer is still using it.
-            print("Waiting for the active writer to finish safely before exiting...", flush=True)
+            print("Waiting for the writer to stop; an interrupted card is not verified...", flush=True)
             process.wait()
             if receipt.exists():
                 atomic_copy(receipt, image_dir / "flash-receipt.json")

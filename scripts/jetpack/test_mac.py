@@ -36,13 +36,15 @@ class MacDiagnosticsTests(unittest.TestCase):
 
             def __init__(self, command, **kwargs):
                 self.assert_sudo(command)
-                stage = Path(command[4]).parent
+                assert "preexec_fn" not in kwargs
+                assert not kwargs.get("start_new_session", False)
+                stage = Path(command[3]).parent
                 stages.append(stage)
                 kwargs["stdout"].write("Operation not permitted: /dev/rdisk4\n")
 
             @staticmethod
             def assert_sudo(command):
-                assert command[:4] == ["/usr/bin/sudo", "-n", "/usr/bin/python3", "-u"]
+                assert command[:3] == ["/usr/bin/sudo", "/usr/bin/python3", "-u"]
 
             def poll(self):
                 return 1
