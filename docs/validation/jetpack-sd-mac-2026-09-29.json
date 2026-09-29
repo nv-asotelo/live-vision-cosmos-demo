@@ -50,7 +50,7 @@
   "limits": [
     "Fresh BSP/rootfs image creation and validation passed using the bring-up scripts. The public one-shot used that cached image.",
     "A fresh public-wrapper VM bootstrap passed; the complete cold image build through the new wrapper has not been run.",
-    "SD boot, in-place APP/ext4 expansion and reboot passed during the first-boot follow-up. Authenticated SSH, compute installation and Live Vision execution remain untested.",
+    "SD boot, in-place APP/ext4 expansion, reboot and authenticated SSH passed during the first-boot follow-up. Compute installation and Live Vision execution remain outside this validation.",
     "The early-expansion service added to future image builds has not yet been exercised in a fresh hardware boot; the same expansion helper passed during USB recovery."
   ],
   "first_boot_followup": {
@@ -59,7 +59,7 @@
     "nvidia_system_configuration_prompt_observed": true,
     "guided_console_network_setup_observed": true,
     "automated_regression_tests_passed": 36,
-    "sd_root_expansion_and_ssh_verification": "SD root and expansion passed; authenticated SSH verification pending local login",
+    "sd_root_expansion_and_ssh_verification": "passed",
     "root_device": "/dev/mmcblk0p1",
     "ubuntu_version": "24.04",
     "l4t_version": "39.2.1",
@@ -71,6 +71,34 @@
     "resize2fs_reported_blocks": 14959867,
     "resize2fs_block_size_bytes": 4096,
     "reboot_and_same_usb_device_reconnection": true,
-    "expansion_helper_sha256": "ca2074e03d941d5c274619ab3fec4e7125fc68b007f79fc141b2e4675e2d2542"
+    "expansion_helper_sha256": "ca2074e03d941d5c274619ab3fec4e7125fc68b007f79fc141b2e4675e2d2542",
+    "first_boot_receipt": {
+      "model": "NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super",
+      "root_device": "/dev/mmcblk0p1",
+      "ubuntu_version": "24.04",
+      "l4t_release": "# R39 (release), REVISION: 2.1, GCID: 46758480, BOARD: generic, EABI: aarch64, DATE: Fri Aug  7 05:54:22 AM UTC 2026",
+      "l4t_package": "39.2.1-20260806224157",
+      "card_capacity_bytes": 62883102720,
+      "root_partition_bytes": 61275618816,
+      "filesystem_size_bytes": 60193816576,
+      "ssh_active": true,
+      "status": "first_boot_verified",
+      "completed_at": "2026-09-29T22:07:39.280540+00:00",
+      "sd_boot_verified": true,
+      "filesystem_expansion_verified": true,
+      "ssh_verified": true,
+      "demo_installation_run": false
+    },
+    "post_reboot_failed_systemd_units": 0,
+    "df_root_available_human": "46G",
+    "df_root_use_percent": 15,
+    "network_followup": {
+      "saved_static_prefix_gateway_dns_corrected_over_usb": true,
+      "assigned_ip_preserved": true,
+      "original_network_profile_backed_up_on_device": true,
+      "nvidia_package_repository_https_status": 200,
+      "lan_ssh_host_key_still_matches_usb": true,
+      "personal_network_addresses_omitted": true
+    }
   }
 }

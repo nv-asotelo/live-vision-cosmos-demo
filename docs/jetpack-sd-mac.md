@@ -115,6 +115,8 @@ IP prompt). Enter the assigned IP/CIDR, subnet mask, gateway, and DNS from your
 network configuration. Use the actual subnet prefix; do not assume `/24`. The Mac's
 mask/gateway/DNS are useful references only when it is on the same LAN; the Orin
 needs its own assigned IP. See [manual network configuration](https://www.debian.org/releases/stable/arm64/ch06s03.en.html#di-netcfg).
+Recheck the saved mask/gateway/DNS after reboot: accepting installer defaults can
+leave LAN SSH working while DNS and internet access fail.
 For **Hostname**, use a name such as `orin-sd`. Leave **Domain name** blank unless
 your network administrator supplied a DNS domain; it is not required on a typical home LAN.
 To verify SSH specifically over the fixed LAN address, add `--host YOUR_ORIN_IP`
@@ -154,7 +156,11 @@ bootstrap was tested separately; its complete cold build has not been rerun.
 On the connected Orin, account/network setup and SD boot on `/dev/mmcblk0p1` with
 L4T 39.2.1 passed. The initial image's approximately 8 GB root filled during setup;
 the USB continuation expanded it to approximately 57 GiB and successfully rebooted.
-SSH verification is still pending. New images now include expansion before NVIDIA
+After reboot, authenticated SSH verified the same SD installation against the host
+key learned over USB. The root had **46 GiB available**, and no failed systemd
+services remained. A follow-up corrected the saved static Ethernet mask/gateway/DNS;
+NVIDIA's package repository then returned HTTP 200 over HTTPS, with SSH still reachable.
+New images now include expansion before NVIDIA
 setup; that early-boot service and a complete fresh image build have not yet been
 tested on hardware. Regression tests cover serial transport, SD partition
 preservation, wrong-root refusal, resumable expansion, SSH identity, and receipts

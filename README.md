@@ -61,8 +61,8 @@ prompts locally; there are no default credentials. Already flashed? Resume with
 `./scripts/flash-jetpack-sd-mac.sh --first-boot-only`. [Workflow and USB limitations](docs/jetpack-sd-mac.md).
 Validated on a **fresh 64 GB SD card** using this script and
 [agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md): writing and full image
-readback, SD boot, and in-place filesystem expansion/reboot passed on 2026-09-29.
-SSH verification and the new image's expansion before NVIDIA setup remain pending.
+readback, SD boot, in-place filesystem expansion/reboot, and authenticated SSH
+passed on 2026-09-29. The new image's expansion before NVIDIA setup remains untested.
 See the [Mac workflow and validation record](docs/jetpack-sd-mac.md) for scope.
 
 Starting point: a Jetson Orin with **JetPack already flashed and booting**, reachable over
