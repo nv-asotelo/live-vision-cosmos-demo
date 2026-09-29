@@ -267,16 +267,21 @@ def find_ssh_host(report, requested=None, timeout=90):
         time.sleep(3)
 
 
+def ssh_options(known_hosts):
+    # Reuse these for verification and the printed reconnect command: an older
+    # card/NVMe at the same IP may still exist in the Mac's global known_hosts.
+    return ["ssh", "-F", "/dev/null", "-o", "StrictHostKeyChecking=yes",
+            "-o", "GlobalKnownHostsFile=/dev/null", "-o", "UserKnownHostsFile=" + str(known_hosts),
+            "-o", "HostKeyAlgorithms=ssh-ed25519", "-o", "UpdateHostKeys=no", "-o", "ClearAllForwardings=yes"]
+
+
 def ssh_verify(report, host, directory, expected=None):
     known_hosts = directory / "known_hosts"
     known_hosts.write_text(host + " " + report["ssh_host_key"] + "\n")
     known_hosts.chmod(0o600)
     marker = "JETPACK_" + secrets.token_hex(12) + "_SSH:"
     print("Verifying SSH as " + report["username"] + "@" + host + ". Enter your Jetson password if prompted.", flush=True)
-    result = subprocess.run([
-        "ssh", "-F", "/dev/null", "-T", "-o", "StrictHostKeyChecking=yes",
-        "-o", "GlobalKnownHostsFile=/dev/null", "-o", "UserKnownHostsFile=" + str(known_hosts),
-        "-o", "HostKeyAlgorithms=ssh-ed25519", "-o", "UpdateHostKeys=no", "-o", "ClearAllForwardings=yes",
+    result = subprocess.run(ssh_options(known_hosts) + ["-T",
         "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3",
         "-l", report["username"], host, probe_command(marker, expected=expected)],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
@@ -326,6 +331,7 @@ def first_boot(cache, serial_port=None, host=None, expected=None):
     path.write_text(json.dumps(receipt, indent=2) + "\n")
     fingerprint = base64.b64encode(hashlib.sha256(base64.b64decode(verified["ssh_host_key"].split()[1])).digest()).decode().rstrip("=")
     print("\nJETPACK_READY: SD boot, filesystem expansion, and SSH passed. Receipt: " + str(path), flush=True)
-    print("SSH: " + shlex.join(["ssh", verified["username"] + "@" + host]) + "\nHost fingerprint: SHA256:" + fingerprint, flush=True)
+    connection = ssh_options(directory / "known_hosts") + [verified["username"] + "@" + host]
+    print("SSH: " + shlex.join(connection) + "\nHost fingerprint: SHA256:" + fingerprint, flush=True)
     print("JetPack OS preparation is complete. For the separately requested demo, return to README Quickstart.", flush=True)
     return receipt

@@ -88,7 +88,9 @@ The same command continues after verified ejection:
    over the physical serial link, and verifies the same SD boot through SSH.
 
 `JETPACK_READY` and a separate `first-boot-receipt.json` mean all these checks passed.
-The terminal prints your SSH command and host fingerprint. Passwords are never
+The terminal prints your SSH command and host fingerprint. Use that command to
+reuse the verified key in the receipt directory when an older card/NVMe used the
+same IP; the Mac's existing SSH host entries are preserved. Passwords are never
 logged or saved; the script does not accept license terms or create an account
 on your behalf. It installs no demo, model, compute SDK, or persistent agent.
 
