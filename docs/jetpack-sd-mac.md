@@ -60,10 +60,17 @@ return to the [demo Quickstart](../README.md#quickstart-automated-setup).
 
 ## Validation
 
-Validation is pending completion of the fresh-card write and full readback. Image
-creation, GPT/ext4 checks, and the clean-rootfs scan have passed. SD boot and Live
-Vision execution on this fresh card have not been tested. The agent workflow is in
-[SKILL.md](../.agents/skills/flash-jetpack-sd-mac/SKILL.md).
+**Validated 2026-09-29 on a fresh nominal 64 GB SD card**, using the supplied script
+and [agent skill](../.agents/skills/flash-jetpack-sd-mac/SKILL.md) on an Apple Silicon
+MacBook (macOS 26.7, 36 GiB RAM, built-in reader). The `--image-dir` route wrote and
+read back all **10,181,672,960 image bytes**, matched SHA-256, and safely ejected the
+card. See the [validation record](validation/jetpack-sd-mac-2026-09-29.json).
+
+Image creation from fresh NVIDIA BSP/rootfs archives, GPT/ext4 checks, and the
+clean-rootfs scan passed in the bring-up workflow. The new wrapper's fresh VM
+bootstrap was tested separately; its complete cold build has not been rerun.
+SD boot, first-boot expansion, compute installation, and Live Vision on this card
+remain untested. Flash verification does not establish those results.
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
 bytes used in this bring-up; they are not claimed as publisher-signed checksums.

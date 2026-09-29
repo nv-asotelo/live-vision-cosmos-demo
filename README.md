@@ -43,7 +43,7 @@ installation is not needed; setup installs any missing pinned CUDA/TensorRT comp
 
 **Need a fresh SD card first?** On an Apple Silicon MacBook with macOS 15+, 16 GB RAM,
 60 GiB free disk, Apple Command Line Tools, Homebrew, internet, an SD reader, and
-administrator/disk-access permission:
+administrator/disk-access permission, run in Terminal:
 
 ```bash
 brew install python qemu zstd
@@ -54,8 +54,10 @@ diskutil list                       # identify the 64 GB+ SD card
 This optional route targets the **Orin Nano Super 8 GB developer kit (P3767-0005)**
 with compatible R39.2.1 QSPI firmware already installed. It prepares OS and NVIDIA drivers
 only. Boot the card, complete first-boot setup, enable SSH, then continue below.
-[Mac workflow, scope, and validation](docs/jetpack-sd-mac.md) ·
-[Agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md).
+Validated on a **fresh 64 GB SD card** using this script and
+[agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md): writing and full image
+readback passed on 2026-09-29; SD boot is not yet tested.
+See the [Mac workflow and validation record](docs/jetpack-sd-mac.md) for scope.
 
 Starting point: a Jetson Orin with **JetPack already flashed and booting**, reachable over
 SSH, and nothing else installed - plus any laptop (any OS, a GPU not required; the laptop
