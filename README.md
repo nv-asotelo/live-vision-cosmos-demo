@@ -30,6 +30,43 @@ the redirect hop.
 | `shim/cosmos3_shim_v1.py` | The Cosmos3-Edge TensorRT-Edge-LLM serving shim - an OpenAI-compatible `/v1/chat/completions` endpoint in front of the built engine. |
 | `systemd/` | Unit templates for the three services (UI, shim, Reachy bridge) and two drop-ins for running a multi-GB resident model on an 8 GB board without swap thrashing. |
 | `ui/tests/`, run via `python3 -m unittest discover -s ui/tests` and `node --test ui/tests/test_engine_switch.js` | 50 tests, no device or GPU required - a fake HTTP backend and a fake DOM stand in for both. |
+| `scripts/bootstrap.sh` | Run **from a laptop** (any OS, GPU optional - it does no compute itself). Copies this repo to the Orin over SSH and runs `setup-orin.sh` there. |
+| `scripts/setup-orin.sh` | Run **on the Orin** (`bootstrap.sh` does this for you). Idempotent, one-shot: builds TensorRT-Edge-LLM, downloads and quantizes the Cosmos3-Edge checkpoint, builds the engine, installs Piper/TLS/systemd, starts the services. |
+| `vendor/quantize_cosmos3_rtn.py` | The CPU-only INT4 RTN quantizer `setup-orin.sh` calls. Not part of NVIDIA's public TensorRT-Edge-LLM SDK - see NOTICE.md for provenance. |
+| `AGENTS.md` | Setup/deployment recipe written for an AI coding agent to follow unattended, plus the "don't change these without re-deriving them" list for the pinned build constants below. `CLAUDE.md` points here. |
+
+## Quickstart: automated setup
+
+Starting point: a Jetson Orin with **JetPack already flashed and booting**, reachable over
+SSH, and nothing else installed - plus any laptop (any OS, a GPU not required; the laptop
+does no compute, it just drives the Orin over SSH). End point: a working
+`https://<orin-ip>:8443/` serving live camera captions from a locally-built TensorRT engine.
+
+```bash
+export HF_TOKEN=hf_...                  # see "Hugging Face access" just below
+export REACHY_MINI_IP=192.168.1.50      # optional - omit if you have no Reachy Mini
+./scripts/bootstrap.sh jetson-user@orin-ip
+```
+
+That's the whole setup. It clones and builds TensorRT-Edge-LLM, downloads and quantizes the
+Cosmos3-Edge checkpoint, exports and builds the engine, installs Piper/TLS/systemd, and
+starts everything - entirely on the Orin, over SSH from whatever laptop you ran it from. It
+takes well over an hour on an Orin Nano, dominated by the on-device TensorRT-Edge-LLM native
+build; it's idempotent, so if it fails partway (a flaky download, a transient apt mirror),
+fix the reported problem and re-run it - completed stages are not repeated.
+
+**Hugging Face access:** `nvidia/Cosmos3-Edge` is a gated model. Visit
+https://huggingface.co/nvidia/Cosmos3-Edge, accept the license, then create a **read** token
+at https://huggingface.co/settings/tokens. This is the one step that can't be automated away
+- everything downstream of it is unattended.
+
+If you're an AI coding agent doing this setup for someone, read `AGENTS.md` first - it
+covers what to do when `HF_TOKEN` isn't available yet, and which build parameters are
+pinned to a measured working configuration rather than being arbitrary defaults.
+
+The rest of this README (below) is the manual, step-by-step reference the automation is
+built from - useful for understanding what a stage actually does, debugging a failure, or
+adapting the pipeline to a different checkpoint revision.
 
 ## Requirements
 
@@ -47,51 +84,71 @@ the redirect hop.
 
 ## Setup
 
+The [Quickstart](#quickstart-automated-setup) above automates everything in this section via
+`scripts/setup-orin.sh`. What follows is the manual, step-by-step version of the same
+recipe - read it to understand what a build stage actually does, to debug a failure, or to
+adapt the pipeline to a different checkpoint revision. It is not a second way to set this up;
+it's what the automation runs, spelled out.
+
 ### 1. Build TensorRT-Edge-LLM and the Cosmos3-Edge engine
 
-Clone and build [NVIDIA/TensorRT-Edge-LLM](https://github.com/NVIDIA/TensorRT-Edge-LLM) per its
-own instructions, then:
+Clone [NVIDIA/TensorRT-Edge-LLM](https://github.com/NVIDIA/TensorRT-Edge-LLM) at commit
+`e8b29522938901f6df19ebeedd4b69bc8edbcd97` (tag `v0.10.1`) and build its native runtime per
+its own instructions (`kernelSrcs/build_cutedsl.py` for the `fmha` and `int4_fp16_gemm`
+kernel groups, then a CMake configure/build for the `_edgellm_runtime`,
+`NvInfer_edgellm_plugin`, `llm_build`, and `visual_build` targets - see
+`scripts/setup-orin.sh`'s `do_build_edgellm_runtime` for the exact commands and environment
+this repo builds against). Then:
 
 1. **Download `nvidia/Cosmos3-Edge`** from Hugging Face (see NOTICE.md - NVIDIA Open Model
-   License). It's a Mixture-of-Transformers Omni checkpoint: one `transformer/` subfolder with two
-   towers (autoregressive text, diffusion image/video/action), selected at export time by
-   `--task {policy,reasoning}`. Point quantization/export at the `transformer/` subfolder
-   specifically, not the snapshot root - the snapshot root has zero flat `.safetensors` files and
-   the quantizer silently no-ops against it.
-2. **Quantize to INT4**: `scripts/rtn_int4_quantize.py --src .../transformer --dst
-   cosmos3_int4_ckpt` (RTN, groupwise).
-3. **Fix the checkpoint's `config.json` and index filename** before export - the quantizer copies
-   the source through unchanged, and two things are missing for this checkpoint specifically:
-   - Add `"model_type": "cosmos3_edge"` and the four multimodal token IDs (`image_token_id`,
-     `video_token_id`, `vision_start_token_id`, `vision_end_token_id`) from the *snapshot root's*
-     `config.json` (not `transformer/config.json`, which lacks them).
-   - Rename `diffusion_pytorch_model.safetensors.index.json` to `model.safetensors.index.json`
-     (the name the exporter's loader requires) and add the quantizer's `.weight_scale` index
-     entries by hand.
-   - Copy `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`,
-     `chat_template.jinja` from the snapshot root into the checkpoint dir.
-4. **Export with `--int4-gemm-plugin-version 1`, not the default 2.** The default V2 (cuteDSL
+   License; it's gated, accept the license on the model page first). The reasoner's LLM
+   weights are indexed directly at the snapshot root by `model.safetensors.index.json` (698
+   tensors); the vision tower is a separate `vision_encoder/` subfolder. Neither needs the
+   sibling `vae/` (image/video generation decoder) or other omni components this demo never
+   loads - `scripts/setup-orin.sh`'s `do_download_checkpoint` reads the root index first to
+   fetch exactly the shards it references, plus `vision_encoder/*` and the tokenizer files.
+2. **Generate a source manifest** the quantizer requires: a `results/model-download.json`
+   receipt with the SHA-256 and byte size of every downloaded file, keyed by relative path.
+   The quantizer (next step) refuses to run without it and re-verifies every hash against it
+   before and during conversion, as a guard against a corrupted or tampered checkpoint - see
+   `do_generate_manifest`.
+3. **Quantize to INT4**: `vendor/quantize_cosmos3_rtn.py --source <snapshot-root> --output
+   <new-empty-dir> --quantization-scope all-linears --apply` (CPU-only, symmetric
+   round-to-nearest, group-128; not part of the public TensorRT-Edge-LLM SDK - see NOTICE.md
+   for where this script comes from). `--output` must be a new directory that doesn't exist
+   yet; it copies `config.json`, the tokenizer, and the chat template through unchanged into
+   its output itself, so there is no separate file-copying step after this one.
+4. **Add four multimodal token IDs to the quantized checkpoint's `config.json`** before
+   export - `image_token_id`, `video_token_id`, `vision_start_token_id`,
+   `vision_end_token_id`. The quantizer copies `config.json` through from the source
+   unchanged, and the upstream checkpoint's `config.json` doesn't have them; the exporter
+   needs them and does not derive them on its own. This repo's actual deployed engine's own
+   `config.json` confirms the correct values (`19`, `18`, `20`, `21` respectively) - see
+   `do_fix_quant_config`.
+5. **Export with `--int4-gemm-plugin-version 1`, not the default 2.** The default V2 (cuteDSL
    fragment-layout) plugin produces an ONNX that fails at `IBuilder::buildSerializedNetwork` with
    `Error Code 9: could not find any supported formats consistent with input/output data types` on
    an ordinary `Int4GroupwiseGemmPluginV2` node. V1 (the legacy AWQ-swizzled plugin) exports and
-   builds cleanly: `tensorrt-edgellm-export --task reasoning --skip-visual
-   --int4-gemm-plugin-version 1`.
-5. **Build the vision engine too, from the same source checkpoint** (`vision_encoder/` + the
-   snapshot root's `config.json`, `--skip-llm`). A vision engine built against a *different*
-   checkpoint's externalized/refit weights will not load (`missing tensor
-   model.projector.linear_fc1.bias`) - always build both from the same source.
-6. **Manually populate `content_types` in `processed_chat_template.json`** after export, if the
+   builds cleanly: `tensorrt-edgellm-export <quantized-dir> <onnx-out> --task reasoning
+   --skip-visual --int4-gemm-plugin-version 1 --quantization int4_awq`.
+6. **Build the vision engine too, from the same downloaded snapshot** (`vision_encoder/` + the
+   snapshot root's `config.json`, `--skip-llm`, no quantization - vision stays FP16). A vision
+   engine built against a *different* checkpoint's externalized/refit weights will not load
+   (`missing tensor model.projector.linear_fc1.bias`) - always build both from the same source.
+7. **Manually populate `content_types` in `processed_chat_template.json`** after export, if the
    exporter's automatic chat-template extraction produced an empty `"content_types": {}` stub
    (check the output - it fails silently, not with an error). Confirm the correct value against
    the checkpoint's own `chat_template.jinja`; for Cosmos3-Edge (Qwen3-VL-based text tower) this is
    `{"image": {"format": "<|vision_start|><|image_pad|><|vision_end|>"}, "video": {"format":
    "<|vision_start|><|video_pad|><|vision_end|>"}}`.
-7. **Compile `llm_build`/`visual_build`** if their binaries don't already exist: `cmake --build
-   build --target llm_build -j$(nproc)` (and `visual_build`), from within TensorRT-Edge-LLM's own
-   build tree - both link against `libNvInfer_edgellm_plugin.so`, already built by the SDK's own
-   setup.
-8. **Build the engine**, pointing `--engine` at wherever you want the final `llm.engine` +
-   `config.json` to live - `shim/cosmos3_shim_v1.py`'s `--engine` argument points here.
+8. **Build the engine** with `llm_build --onnxDir <onnx>/llm --engineDir <engine-dir>
+   --maxInputLen 1024 --maxKVCacheCapacity 1024 --maxKVPoolPages 8 --maxBatchSize 1` and
+   `visual_build --onnxDir <onnx>/visual --engineDir <engine-dir> --minImageTokens 4
+   --maxImageTokens 1024 --maxImageTokensPerImage 512` (visual engine lands under
+   `<engine-dir>/visual/` automatically). These specific input/KV/batch capacities match RAM
+   headroom measured on an 8 GB Orin Nano - raising them needs re-measuring, not just a flag
+   change. `<engine-dir>` is what `engine-link` should point at below -
+   `shim/cosmos3_shim_v1.py` reads `llm.engine` + `config.json` from there.
 
 ### 2. Install this repo
 

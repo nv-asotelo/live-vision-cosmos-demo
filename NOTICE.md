@@ -24,7 +24,10 @@ The `piper` binary itself: MIT License, Copyright (c) 2022 Michael Hansen. Proje
 [rhasspy/piper](https://github.com/rhasspy/piper). (Piper has since moved to active development
 as [OHF-Voice/piper1-gpl](https://github.com/OHF-Voice/piper1-gpl) under the Open Home Foundation,
 GPL-3.0 - confirm which build you are actually running before redistributing it, by license
-terms they differ meaningfully.)
+terms they differ meaningfully.) `scripts/setup-orin.sh` downloads the official prebuilt
+`v1.2.0` `aarch64` release binary from
+[rhasspy/piper's GitHub releases](https://github.com/rhasspy/piper/releases) at install time;
+this repository does not vendor the binary itself.
 
 Piper embeds [espeak-ng](https://github.com/espeak-ng/espeak-ng) (GPL-3.0) for phonemization.
 
@@ -35,6 +38,17 @@ on the public-domain [LJ Speech Dataset](https://keithito.com/LJ-Speech-Dataset/
 If you substitute a different Piper voice, check its own MODEL_CARD - several published Piper
 voices (including ones with "_r" in their name, trained by fine-tuning from another voice) carry
 non-commercial-only research licenses inherited from their base voice.
+
+## `vendor/quantize_cosmos3_rtn.py`
+
+A CPU-only INT4 round-to-nearest quantization converter for the Cosmos3-Edge checkpoint.
+There is no upstream RTN quantizer in NVIDIA's public TensorRT-Edge-LLM SDK pin this repo
+builds against, so this script is vendored, unmodified, from a separate Cosmos3-Edge-on-Orin
+bring-up task on the same hardware family and account. That workspace's own newly-authored
+code is licensed Apache-2.0. No model architecture, weights, or NVIDIA source code is
+included in it - it reads an official NVIDIA checkpoint and writes a quantized derivative;
+the underlying Cosmos3-Edge model and its license remain NVIDIA's, per the NVIDIA Cosmos
+section above.
 
 ## Reachy Mini
 
