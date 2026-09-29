@@ -42,7 +42,8 @@ the redirect hop.
 installation is not needed; setup installs any missing pinned CUDA/TensorRT components.
 
 **Need a fresh SD card first?** On an Apple Silicon MacBook with macOS 15+, 16 GB RAM,
-60 GiB free disk, Apple Command Line Tools, Homebrew, internet, an SD reader, and administrator access:
+60 GiB free disk, Apple Command Line Tools, Homebrew, internet, an SD reader, and
+administrator/disk-access permission:
 
 ```bash
 brew install python qemu zstd

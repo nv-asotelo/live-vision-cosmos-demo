@@ -168,11 +168,24 @@ def build_image(cache, output):
         validate_image(output / IMAGE_NAME, manifest, shutil.which("zstd"))
 
 
+def atomic_copy(source, destination):
+    """Replace our output even when an earlier privileged run owned the old file."""
+    handle, name = tempfile.mkstemp(prefix="." + destination.name + "-", dir=destination.parent)
+    os.close(handle)
+    temporary = Path(name)
+    try:
+        shutil.copyfile(source, temporary)
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def write_card(image_dir, disk, target, zstd):
     # The macOS privileged helper cannot reliably read Documents/Desktop. Stage in
     # a private temporary directory instead of changing macOS privacy permissions.
-    with tempfile.TemporaryDirectory(prefix="live-vision-jetpack-", dir="/private/tmp") as folder:
-        stage = Path(folder)
+    stage = Path(tempfile.mkdtemp(prefix="live-vision-jetpack-", dir="/private/tmp"))
+    success = False
+    try:
         source, image = image_dir / IMAGE_NAME, stage / IMAGE_NAME.removesuffix(".zst")
         size = json.loads((image_dir / "image.json").read_text())["size_bytes"]
         require(shutil.disk_usage(stage).free >= size + 1024**3, "Need space for the raw image on the Mac's temporary volume")
@@ -208,19 +221,25 @@ def write_card(image_dir, disk, target, zstd):
                 time.sleep(1)
             log = stage / "write.log"
             if log.exists():
-                shutil.copyfile(log, image_dir / "write.log")
                 with log.open() as stream:
                     stream.seek(offset)
                     print(stream.read(), end="", flush=True)
+                atomic_copy(log, image_dir / "write.log")
             require(process.returncode == 0 and receipt.exists(), "Flash did not complete; inspect " + str(image_dir / "write.log"))
-            shutil.copyfile(receipt, image_dir / "flash-receipt.json")
+            atomic_copy(receipt, image_dir / "flash-receipt.json")
+            success = True
         except KeyboardInterrupt:
             # Do not remove the image while the privileged writer is still using it.
             print("Waiting for the active writer to finish safely before exiting...", flush=True)
             process.wait()
             if receipt.exists():
-                shutil.copyfile(receipt, image_dir / "flash-receipt.json")
+                atomic_copy(receipt, image_dir / "flash-receipt.json")
             raise
+    finally:
+        if success:
+            shutil.rmtree(stage)
+        else:
+            print("Retained flash diagnostics and staged image at " + str(stage), flush=True)
     print("Receipt: " + str(image_dir / "flash-receipt.json"), flush=True)
     print("Boot the SD on the Orin, complete first-boot setup, enable SSH, then follow the README Quickstart.", flush=True)
 

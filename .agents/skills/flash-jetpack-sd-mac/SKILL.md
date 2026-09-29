@@ -24,9 +24,11 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
    never collect their password in chat. Keep the card inserted through readback.
 4. A successful run writes `flash-receipt.json` under the reported image directory
    and ejects the card. Confirm its status and SHA-256. On any error, inspect the
-   reported log and resolve the cause; do not retry a write automatically or
-   broaden device permissions. The helper stages files outside Documents to
-   avoid macOS privacy-folder failures.
+   reported log and resolve the cause; do not retry a write automatically.
+   If macOS denies `/dev/rdiskN` despite administrator authentication, follow the
+   workflow's disk-access guidance and wait for the user to grant that permission.
+   Do not change privacy settings yourself. Staged files and logs are retained on
+   failure; the helper stages outside Documents to avoid privacy-folder failures.
 5. Ask the user to boot the SD on the Orin, finish first-boot setup, and enable
    SSH. Check `findmnt -n -o SOURCE /`, `cat /etc/nv_tegra_release`, and `df -h /`
    before claiming SD boot or filesystem expansion. Writing and readback alone

@@ -156,19 +156,34 @@ def main():
     disk, image = request["disk"], Path(request["image"])
     manifest = json.loads(Path(request["manifest"]).read_text())
     target = target_identity(disk)
-    require(target == request["target"], "Card identity changed; stop and select the card again")
+    differences = {key: {"expected": request["target"].get(key), "observed": target.get(key)}
+                   for key in target.keys() | request["target"].keys()
+                   if target.get(key) != request["target"].get(key)}
+    require(not differences, "Card identity changed; stop and select the card again: " + json.dumps(differences))
+    print("Card identity confirmed; validating staged image", flush=True)
     size = validate_image(image, manifest, request["zstd"])
     require(size < target["TotalSize"], "Image does not fit this card")
     if not args.write:
         print("PREFLIGHT_PASSED: no SD card writes performed", flush=True)
         return
     require(os.geteuid() == 0, "macOS administrator authentication required")
+    print("Image validated; unmounting the SD card", flush=True)
     subprocess.run(["/usr/sbin/diskutil", "unmountDisk", disk], check=True)
     require(target_identity(disk) == target, "Card identity changed after unmount")
     raw = disk.replace("/dev/disk", "/dev/rdisk", 1)
     started = datetime.now(timezone.utc).isoformat()
     with image_stream(image, request["zstd"]) as stream:
-        with open(raw, "r+b", buffering=0) as device:
+        try:
+            device = open(raw, "r+b", buffering=0)
+        except PermissionError as error:
+            raise RuntimeError(
+                "macOS denied raw SD-device access after administrator authentication. "
+                "No image bytes were written. Check System Settings > Privacy & Security "
+                "for disk access granted to the terminal or app launching this command "
+                "(Full Disk Access may be required); reopen that app if macOS requests it. "
+                "Retry only after resolving the permission."
+            ) from error
+        with device:
             copy_image(stream, device, size, manifest["sha256"])
             os.fsync(device.fileno())
             fcntl.ioctl(device.fileno(), 0x20006416)  # macOS DKIOCSYNCHRONIZECACHE

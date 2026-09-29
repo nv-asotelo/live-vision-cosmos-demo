@@ -8,8 +8,9 @@ components before the demo build; OS-only media is intentionally not a full comp
 
 - Apple Silicon MacBook, macOS **15+**, **16 GB RAM**, **60 GiB free** on the build
   cache volume, internet, Apple Command Line Tools (`xcode-select --install`),
-  [Homebrew](https://docs.brew.sh/Installation), and administrator
-  access. QEMU uses 8 GiB and four virtual CPUs. No laptop GPU or CUDA is required.
+  [Homebrew](https://docs.brew.sh/Installation), administrator access, and macOS
+  disk-access permission for the terminal/app running the command. QEMU uses 8 GiB
+  and four virtual CPUs. No laptop GPU or CUDA is required.
 - Writable **64 GB+ microSD**, built-in SD reader or a USB reader that reports removable
   media. The selected card is erased. The tested nominal 64 GB card reports 62,883,102,720 bytes.
 - **Orin Nano Super 8 GB developer kit P3767-0005**, FAB 300, board revision T.1,
@@ -43,6 +44,11 @@ Failed builds retain a stopped VM and logs for diagnosis. `--cache-dir` selects 
 volume; `--image-dir` reuses a directory containing the generated `.img.zst` and `image.json`.
 Only the final writer is privileged, with an expanded image staged outside protected
 Documents/Desktop. The Mac's temporary volume also needs 11 GiB free for that image.
+If macOS reports `Operation not permitted` for `/dev/rdiskN` after authentication,
+check **System Settings → Privacy & Security → Full Disk Access** for the launching
+terminal/app, and reopen it if requested. Administrator authentication and disk access
+are separate permissions ([Apple](https://support.apple.com/guide/security/controlling-app-access-to-files-secddd1d86a6/web)).
+Failed writes retain their staging directory and log; resolve the reported cause before retrying.
 
 After ejection, move the card to the powered-off Orin, select SD in its boot menu if
 needed, complete first-boot setup, and enable SSH. Confirm `/` is on `mmcblk0p1`,
