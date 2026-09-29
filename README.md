@@ -32,10 +32,32 @@ the redirect hop.
 | `ui/tests/`, run via `python3 -m unittest discover -s ui/tests` and `node --test ui/tests/test_engine_switch.js` | 50 tests, no device or GPU required - a fake HTTP backend and a fake DOM stand in for both. |
 | `scripts/bootstrap.sh` | Run **from a laptop** (any OS, GPU optional - it does no compute itself). Copies this repo to the Orin over SSH and runs `setup-orin.sh` there. |
 | `scripts/setup-orin.sh` | Run **on the Orin** (`bootstrap.sh` does this for you). Idempotent, one-shot: builds TensorRT-Edge-LLM, downloads and quantizes the Cosmos3-Edge checkpoint, builds the engine, installs Piper/TLS/systemd, starts the services. |
+| `scripts/flash-jetpack-sd-mac.sh` | Optional Mac one-shot for a clean JetPack 7.2.1 SD card; helpers in `scripts/jetpack/`, agent skill in `.agents/skills/flash-jetpack-sd-mac/`. |
 | `vendor/quantize_cosmos3_rtn.py` | The CPU-only INT4 RTN quantizer `setup-orin.sh` calls. Not part of NVIDIA's public TensorRT-Edge-LLM SDK - see NOTICE.md for provenance. |
 | `AGENTS.md` | Setup/deployment recipe written for an AI coding agent to follow unattended, plus the "don't change these without re-deriving them" list for the pinned build constants below. `CLAUDE.md` points here. |
 
 ## Quickstart: automated setup
+
+**Already running JetPack 7.2.1 / Jetson Linux 39.2.1? Keep it.** A fresh JetPack
+installation is not needed; setup installs any missing pinned CUDA/TensorRT components.
+
+**Need a fresh SD card first?** On an Apple Silicon MacBook with macOS 15+, 16 GB RAM,
+60 GiB free disk, Apple Command Line Tools, Homebrew, internet, an SD reader, and
+administrator/disk-access permission, run in Terminal:
+
+```bash
+brew install python qemu zstd
+diskutil list                       # identify the 64 GB+ SD card
+./scripts/flash-jetpack-sd-mac.sh --disk /dev/diskN --erase
+```
+
+This optional route targets the **Orin Nano Super 8 GB developer kit (P3767-0005)**
+with compatible R39.2.1 QSPI firmware already installed. It prepares OS and NVIDIA drivers
+only. Boot the card, complete first-boot setup, enable SSH, then continue below.
+Validated on a **fresh 64 GB SD card** using this script and
+[agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md): writing and full image
+readback passed on 2026-09-29; SD boot is not yet tested.
+See the [Mac workflow and validation record](docs/jetpack-sd-mac.md) for scope.
 
 Starting point: a Jetson Orin with **JetPack already flashed and booting**, reachable over
 SSH, and nothing else installed - plus any laptop (any OS, a GPU not required; the laptop
@@ -70,12 +92,13 @@ adapting the pipeline to a different checkpoint revision.
 
 ## Requirements
 
-- **Jetson Orin (Nano or better) with JetPack already flashed and booting.** This repo is the
-  application layer only - it does not flash or provision the OS.
+- **Jetson Orin (Nano or better) booting JetPack 7.2.1 / L4T 39.2.1.** Keep an existing
+  compatible installation, or use the optional [Mac SD workflow](docs/jetpack-sd-mac.md)
+  for the supported Orin Nano Super developer kit before application setup.
 - **A 64 GB SD card or larger is recommended.** The application layer itself (this repo, the built
   engine, Piper, and the TensorRT-Edge-LLM Python environment the shim runs in) is roughly 5 GB;
-  JetPack's own base install is the majority of what a card needs to hold. A 32 GB card is
-  possible if you are careful about what else you install, but leaves it noticeably tighter.
+  the complete build also needs CUDA/TensorRT development packages and intermediate model
+  files. Use at least 64 GB for this workflow; the setup script checks available build space.
 - **NVIDIA's [TensorRT-Edge-LLM](https://github.com/NVIDIA/TensorRT-Edge-LLM) SDK**, built on
   device, to both build the Cosmos3-Edge engine and provide the Python venv the shim runs from.
   Not vendored in this repo - it's a substantial NVIDIA SDK with its own license and update cycle.
