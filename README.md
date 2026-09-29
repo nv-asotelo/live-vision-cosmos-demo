@@ -54,6 +54,8 @@ diskutil list                       # identify the 64 GB+ SD card
 This optional route targets the **Orin Nano Super 8 GB developer kit (P3767-0005)**
 with compatible R39.2.1 QSPI firmware already installed. It prepares OS and NVIDIA drivers
 only. Boot the card, complete first-boot setup, enable SSH, then continue below.
+Without a monitor, follow [first boot from the Mac over USB serial](docs/jetpack-sd-mac.md#first-boot-from-the-mac)
+to create your account and enable SSH; there are no default login credentials.
 Validated on a **fresh 64 GB SD card** using this script and
 [agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md): writing and full image
 readback passed on 2026-09-29; SD boot is not yet tested.

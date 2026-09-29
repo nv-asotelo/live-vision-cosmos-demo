@@ -33,7 +33,10 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
    Do not change privacy settings yourself. Staged files and logs are retained on
    failure; the helper stages outside Documents to avoid privacy-folder failures.
 5. Ask the user to boot the SD on the Orin, finish first-boot setup, and enable
-   SSH. Check `findmnt -n -o SOURCE /`, `cat /etc/nv_tegra_release`, and `df -h /`
+   SSH. For setup without a monitor, follow [first boot from the Mac](../../../docs/jetpack-sd-mac.md#first-boot-from-the-mac).
+   There are no default credentials; have the user create their account locally.
+   USB-C serial starts after Linux and cannot select the SD in UEFI's boot menu.
+   Check `findmnt -n -o SOURCE /`, `cat /etc/nv_tegra_release`, and `df -h /`
    before claiming SD boot or filesystem expansion. Writing and readback alone
    do not prove boot, GPU execution, or Live Vision inference.
 

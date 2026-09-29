@@ -53,10 +53,58 @@ Administrator authentication and disk access are separate permissions
 ([Apple](https://support.apple.com/guide/security/controlling-app-access-to-files-secddd1d86a6/web)).
 Failed writes retain their staging directory and log; resolve the reported cause before retrying.
 
-After ejection, move the card to the powered-off Orin, select SD in its boot menu if
-needed, complete first-boot setup, and enable SSH. Confirm `/` is on `mmcblk0p1`,
-L4T reports R39 revision 2.1, and `df -h /` shows the expanded filesystem. Then
-return to the [demo Quickstart](../README.md#quickstart-automated-setup).
+After ejection, move the card to the powered-off Orin. Complete first-boot setup
+using a monitor and keyboard, or the Mac USB-serial procedure below.
+
+## First boot from the Mac
+
+There is **no default username or password**. Create your account through
+[NVIDIA's headless first-boot setup](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#headless-mode-flow-in-oem-config):
+
+1. Leave the Orin's monitor disconnected, insert the SD, connect its USB-C port to
+   the Mac with a **data cable**, then connect its normal power supply. Boot normally,
+   without a recovery jumper. Connect Ethernet to your router for internet access.
+2. In **Mac Terminal**, find the new serial port and open it (replace `XXXX`):
+
+   ```bash
+   ls /dev/cu.usbmodem*
+   screen /dev/cu.usbmodemXXXX 115200
+   ```
+
+   If no port appears, check the data cable, power, and whether Linux has booted.
+3. Press **Enter**, complete the setup prompts, and choose your username/password.
+   Reconnect the serial session if setup restarts USB, then log in.
+
+Run **on the Jetson, inside the serial session**:
+
+```bash
+sudo systemctl enable --now ssh
+findmnt -n -o SOURCE /
+cat /etc/nv_tegra_release
+df -h /
+hostname -I
+```
+
+Expect `/dev/mmcblk0p1`, R39 revision 2.1, and a root filesystem expanded to use
+most of the card. A root device such as `/dev/nvme0n1p1` means the
+existing NVMe installation booted instead. Exit `screen` with **Ctrl-A**, then
+**K**, then **Y**.
+
+From a **new Mac Terminal window**, connect with the account you created:
+
+```bash
+ssh your-username@192.168.55.1
+```
+
+`192.168.55.1` is the Jetson's [USB-network address](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/hardware_layout.html#usb-ports)
+when that interface is active; otherwise use its Ethernet/Wi-Fi address from
+`hostname -I`. The USB link alone does not provide internet access. Continue with
+the [demo Quickstart](../README.md#quickstart-automated-setup).
+
+**If SD needs selecting in the boot menu:** USB-C serial appears after Linux
+starts, so it cannot control UEFI. Use a DisplayPort monitor and keyboard
+(**Esc → Boot Manager → SD**), or a USB-to-TTL serial adapter on the debug header
+from your Mac; see [NVIDIA's serial boot-menu instructions](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/quick_start.html).
 
 ## Validation
 
