@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+node_modules/
+.jetpack-cache/
+# scripts/bootstrap.sh --host-quantize scratch (cleaned up on exit; ignored as a backstop
+# in case cleanup doesn't run, e.g. the process is killed)
+/tmp.*/
+/results/
+# Per-device config written on the Orin (scripts/set-reachy-ip.sh), never committed.
+/reachy.env
