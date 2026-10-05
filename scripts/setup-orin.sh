@@ -20,12 +20,12 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------------------
-# Configuration - pinned versions match the exact revisions this repo's shim and systemd
-# units were built and tested against. Do not bump these without re-validating the whole
-# pipeline; TensorRT-Edge-LLM's ABI and the Cosmos3-Edge checkpoint format both move.
+# Configuration - v0.11.0 migration candidate. Offline checks cover the API contract;
+# a fresh Orin build and visual accuracy/performance checks are still required before
+# calling this hardware-validated. TensorRT engines must be rebuilt with this SDK.
 # ---------------------------------------------------------------------------------------
 INSTALL_DIR="/opt/live-vision-cosmos-demo"
-EDGELLM_COMMIT="e8b29522938901f6df19ebeedd4b69bc8edbcd97"   # tag v0.10.1
+EDGELLM_COMMIT="95515c2f87fba8982db5a519f9022277667b3cc9"   # tag v0.11.0
 COSMOS_MODEL_REPO="nvidia/Cosmos3-Edge"
 COSMOS_MODEL_REVISION="344d602b128d1bbdacb43b08d0a3626f46343e29"
 PIPER_VERSION="1.2.0"
@@ -61,8 +61,25 @@ log() { printf '\n\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[1;31mFATAL\033[0m %s\n' "$*" >&2; exit 1; }
 
-stage_done() { [[ -e "$STATE_DIR/$1" ]]; }
-stage_mark() { mkdir -p "$STATE_DIR"; touch "$STATE_DIR/$1"; }
+stage_revision() {
+  # Old releases wrote empty markers. Never let them reuse a v0.10.1 runtime,
+  # export or serialized engine with the v0.11.0 source and Jinja contract.
+  # Copy the matching demo sources too, including when invoked from another checkout.
+  case "$1" in
+    fetch_repo_self|fetch_edgellm|edgellm_venv|build_edgellm_runtime|quantize|export_onnx_llm|export_onnx_visual|validate_chat_template|build_engine|link_engine|enable_services|smoke_test)
+      printf '%s\n' "$EDGELLM_COMMIT" ;;
+    *) printf '\n' ;;
+  esac
+}
+stage_done() {
+  [[ -f "$STATE_DIR/$1" ]] || return 1
+  local revision; revision="$(stage_revision "$1")"
+  [[ -z "$revision" || "$(cat "$STATE_DIR/$1")" == "$revision" ]]
+}
+stage_mark() {
+  mkdir -p "$STATE_DIR"
+  stage_revision "$1" > "$STATE_DIR/$1"
+}
 stage() {
   local name="$1"; shift
   if stage_done "$name"; then
@@ -204,6 +221,7 @@ do_fetch_repo_self() {
 }
 
 do_fetch_edgellm() {
+  pause_inference
   # sudo -u, not plain mkdir: a root-owned parent here would make the git clone below (which
   # runs as $SERVICE_USER) fail with "Permission denied" creating its own work tree inside it.
   sudo -u "$SERVICE_USER" mkdir -p "$(dirname "$EDGELLM_DIR")"
@@ -436,7 +454,7 @@ adopt_host_export() {
   # scripts/bootstrap.sh --host-quantize leaves the V2 LLM export it made on the laptop staged at
   # $ONNX_DIR/llm.host, flagged .complete only once its copy finished. Take it over: swap it in,
   # mark this machine's own quantize/export stages done (it replaces them), and clear the stages
-  # built on top of the previous export - re-patch its chat template, rebuild the engine from it,
+  # built on top of the previous export - validate its chat template, rebuild the engine from it,
   # restart the services onto it, re-run the smoke test. On a fresh Orin those simply haven't run
   # yet; on one already set up, this is what upgrades it. Not a stage: runs whenever one is waiting.
   local staged="$ONNX_DIR/llm.host"
@@ -446,6 +464,8 @@ adopt_host_export() {
     rm -rf "$staged"
     return 0
   fi
+  [[ -f "$staged/.edgellm-commit" && "$(cat "$staged/.edgellm-commit")" == "$EDGELLM_COMMIT" ]] \
+    || die "Host export SDK does not match $EDGELLM_COMMIT. Re-run --host-quantize with this checkout; do not mix v0.10.1 exports and v0.11.0 runtime."
   log "adopting the LLM export --host-quantize made on the laptop (V2/cuteDSL plugin)"
   rm -f "$staged/.complete"
   rm -rf "${ONNX_DIR:?}/llm"
@@ -453,7 +473,7 @@ adopt_host_export() {
   chown -R "$SERVICE_USER:$SERVICE_USER" "$ONNX_DIR/llm"
   stage_mark quantize
   stage_mark export_onnx_llm
-  rm -f "$STATE_DIR"/{fix_chat_template,build_engine,enable_services,smoke_test}
+  rm -f "$STATE_DIR"/{fix_chat_template,validate_chat_template,build_engine,enable_services,smoke_test}
 }
 
 do_export_onnx_llm() {
@@ -492,25 +512,24 @@ do_export_onnx_visual() {
     --task reasoning --skip-llm
 }
 
-do_fix_chat_template() {
-  local tmpl="$ONNX_DIR/llm/processed_chat_template.json"
-  [[ -f "$tmpl" ]] || { warn "$tmpl not found, skipping chat-template content_types check."; return 0; }
-  "$EDGELLM_PY" - "$tmpl" <<'PY'
-import json, sys
+do_validate_chat_template() {
+  # v0.11.0 copies the provider's Jinja verbatim and renders it in native Inja.
+  # The old processed_chat_template.json patch is no longer supported. Refuse
+  # missing, stale or rewritten templates instead of synthesizing delimiters.
+  "$EDGELLM_PY" - "$RAW_DIR" "$ONNX_DIR/llm" <<'PY'
+import sys
 from pathlib import Path
-p = Path(sys.argv[1])
-data = json.loads(p.read_text())
-if not data.get("content_types"):
-    # Qwen3-VL-based text tower's actual delimiters, confirmed against this checkpoint's own
-    # chat_template.jinja - the exporter's auto-extraction can silently produce an empty stub.
-    data["content_types"] = {
-        "image": {"format": "<|vision_start|><|image_pad|><|vision_end|>"},
-        "video": {"format": "<|vision_start|><|video_pad|><|vision_end|>"},
-    }
-    p.write_text(json.dumps(data, indent=2))
-    print(f"patched {p}: populated content_types (was empty)")
-else:
-    print(f"{p} already has content_types, no change")
+source, exported = map(Path, sys.argv[1:])
+provider = source / "chat_template.jinja"
+template = exported / "chat_template.jinja"
+if not provider.is_file() or not template.is_file():
+    sys.exit("Missing Cosmos provider Jinja; re-download the pinned checkpoint and re-export with v0.11.0.")
+if not provider.read_bytes().strip() or template.read_bytes() != provider.read_bytes():
+    sys.exit("Exported Jinja must match the pinned provider template byte-for-byte.")
+for name in ("processed_chat_template.json", "chat_template.model", "additional_chat_templates"):
+    if (exported / name).exists():
+        sys.exit(f"Stale/conflicting {name}; use a clean v0.11.0 export.")
+print(f"Validated provider template: {template}")
 PY
 }
 
@@ -578,6 +597,8 @@ do_build_engine() {
     --onnxDir "$ONNX_DIR/visual" --engineDir "$ENGINE_DIR" \
     --minImageTokens 4 --maxImageTokens 1024 --maxImageTokensPerImage 512
   [[ -f "$ENGINE_DIR/llm.engine" ]] || die "llm_build ran but $ENGINE_DIR/llm.engine is missing."
+  cmp -s "$RAW_DIR/chat_template.jinja" "$ENGINE_DIR/chat_template.jinja" \
+    || die "The engine is missing the matching provider Jinja template. Do not start this engine."
   disable_build_swap
 }
 
@@ -718,7 +739,7 @@ main() {
   stage quantize                do_quantize
   stage export_onnx_llm         do_export_onnx_llm
   stage export_onnx_visual      do_export_onnx_visual
-  stage fix_chat_template       do_fix_chat_template
+  stage validate_chat_template do_validate_chat_template
   stage build_engine            do_build_engine
   stage link_engine             do_link_engine
   stage setup_piper             do_setup_piper
@@ -730,4 +751,6 @@ main() {
   resume_inference
   stage smoke_test              do_smoke_test
 }
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

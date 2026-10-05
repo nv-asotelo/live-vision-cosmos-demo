@@ -1,5 +1,11 @@
 # Live Vision + Reachy Mini + Cosmos3-Edge
 
+**Upgrade candidate: TensorRT-Edge-LLM 0.11.0.** This branch requires freshly exported
+and rebuilt engines. Offline migration checks pass; Orin execution, quality, RAM and
+latency still need validation. Measurements elsewhere in this README describe the
+0.10.1 baseline, not results for this candidate. See the
+[upgrade recommendation and validation plan](docs/edgellm-0.11-upgrade.md).
+
 A minimal, low-RAM camera/VLM web UI that runs a locally-hosted **NVIDIA Cosmos3-Edge** model on a
 Jetson Orin over TensorRT-Edge-LLM, with live **Reachy Mini** robot control (motors, onboard apps,
 pose, text-to-speech) alongside it. No cloud calls, no framework - the web server
@@ -242,7 +248,7 @@ it's what the automation runs, spelled out.
 Everything in this step lives inside this repo's checkout at `/opt/live-vision-cosmos-demo`, so
 make that first - the `mkdir`/`chown` and `git clone` lines of step 2 - and run the commands
 below from there. Clone [NVIDIA/TensorRT-Edge-LLM](https://github.com/NVIDIA/TensorRT-Edge-LLM)
-at commit `e8b29522938901f6df19ebeedd4b69bc8edbcd97` (tag `v0.10.1`), with its submodules, into
+at commit `95515c2f87fba8982db5a519f9022277667b3cc9` (tag `v0.11.0`), with its submodules, into
 `/opt/live-vision-cosmos-demo/external/TensorRT-Edge-LLM`, give it a Python venv at `.venv`
 inside that directory, and build its native runtime per its own instructions
 (`kernelSrcs/build_cutedsl.py` for the `fmha` and `int4_fp16_gemm` kernel groups, then a CMake
@@ -352,13 +358,16 @@ with the SDK anywhere else, edit `ExecStart` and set `EDGELLM_ROOT` for the shim
    A vision engine built against a *different* checkpoint's externalized/refit weights will not
    load (`missing tensor model.projector.linear_fc1.bias`) - always build both from the same
    source.
-6. **Manually populate `content_types` in `processed_chat_template.json`** (in
-   `checkpoints/Cosmos3-Edge/onnx/reasoning/llm/`) after export, if the
-   exporter's automatic chat-template extraction produced an empty `"content_types": {}` stub
-   (check the output - it fails silently, not with an error). Confirm the correct value against
-   the checkpoint's own `chat_template.jinja`; for Cosmos3-Edge (Qwen3-VL-based text tower) this is
-   `{"image": {"format": "<|vision_start|><|image_pad|><|vision_end|>"}, "video": {"format":
-   "<|vision_start|><|video_pad|><|vision_end|>"}}`.
+6. **Validate the provider's `chat_template.jinja` after export.** Version 0.11 renders
+   the original template in C++ and no longer supports `processed_chat_template.json`.
+   `do_validate_chat_template` requires the exported template to match the pinned
+   checkpoint byte-for-byte and rejects stale template artifacts. Do not apply the old
+   JSON `content_types` repair or copy a template from another model.
+
+   ```bash
+   cmp checkpoints/Cosmos3-Edge/raw/chat_template.jinja \
+     checkpoints/Cosmos3-Edge/onnx/reasoning/llm/chat_template.jinja
+   ```
 7. **Build the engines** as `do_build_engine` does: the SDK build's own binaries, with
    `EDGELLM_PLUGIN_PATH` set and a temporary swapfile on. Without `EDGELLM_PLUGIN_PATH`, both
    binaries look for the plugin at the relative path `build/libNvInfer_edgellm_plugin.so` and

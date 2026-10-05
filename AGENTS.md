@@ -1,5 +1,15 @@
 # Agent instructions
 
+## This branch: TensorRT-Edge-LLM 0.11 migration candidate
+
+Use SDK commit `95515c2f87fba8982db5a519f9022277667b3cc9`. Read
+[the upgrade assessment](docs/edgellm-0.11-upgrade.md) before deployment. Offline checks
+do not establish Orin build success, visual accuracy, RAM footprint or latency. Historical
+measurements below describe the 0.10.1 deployment. Re-export and rebuild both engines;
+do not reuse 0.10.1 serialized engines or apply its JSON chat-template repair. The current
+installer validates the checkpoint's original Jinja and invalidates stale SDK-dependent
+stage markers. Use a fresh SD installation for this trial so the existing demo stays available.
+
 This repo is a one-shot deployable demo: **Live Vision UI + Reachy Mini robot control +
 NVIDIA Cosmos3-Edge**, running on a Jetson Orin. If you were asked to "set up" or "deploy"
 this demo, the goal is: a fresh Orin (JetPack already flashed, nothing else installed) plus
@@ -171,8 +181,9 @@ the camera sees.
 
 ## Boundaries - things not to "fix" without re-deriving them
 
-Several values in `scripts/setup-orin.sh` look like arbitrary constants but are pinned to
-match this repo's own actual, measured, working deployment. Don't change them speculatively:
+Several values in `scripts/setup-orin.sh` are retained from the measured 0.10.1
+deployment to control the first comparison. They are not new 0.11 performance results.
+Don't change them speculatively:
 
 - **`nvpmodel -m 2` (`do_pin_clocks`).** Mode 2 is `MAXN_SUPER` on the Orin Nano Super this
   was measured on - an uncapped power mode one step above the board's "25W" default (mode 1).
@@ -257,9 +268,19 @@ node --test ui/tests/test_engine_switch.js
 ```
 
 50 tests, no device, network, GPU, or model required - fake HTTP backend and fake DOM stand
-in for both. Run these after editing anything under `ui/`. They do not exercise
-`scripts/setup-orin.sh` or the Cosmos3-Edge build pipeline itself (there is no way to test
-that without an actual Orin and a real GPU build).
+in for both. Run these after editing anything under `ui/`.
+
+For migration and SD-helper changes, run the corresponding offline checks:
+
+```bash
+python3 -m unittest discover -s scripts/tests
+python3 -m unittest discover -s scripts/jetpack -p 'test_*.py'
+```
+
+The eight migration tests exercise stage invalidation, host-export receipts, template
+validation and the shim's request/timing contract with a fake native runtime. The 13
+SD-helper tests use fixtures and fake devices. None establishes a successful GPU build,
+physical card write, boot, caption accuracy or inference performance.
 
 ## Repo layout
 

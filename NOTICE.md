@@ -35,6 +35,23 @@ See the file's own header comment for the full story of the `config.json` change
 `do_quantize` in `scripts/setup-orin.sh` for why the pipeline needs this separate quantization
 pass at all.
 
+## TensorRT-Edge-LLM 0.11 runtime dependencies
+
+This upgrade branch downloads and builds
+[NVIDIA TensorRT-Edge-LLM 0.11.0](https://github.com/NVIDIA/TensorRT-Edge-LLM/tree/95515c2f87fba8982db5a519f9022277667b3cc9),
+licensed under Apache-2.0. Its source and native libraries are not vendored into this
+application's tracked files. Preserve the SDK's own third-party notices when distributing
+an installed environment or compiled runtime.
+
+Compared with the previous SDK pin, the native runtime includes the
+[Inja template renderer](https://github.com/NVIDIA/TensorRT-Edge-LLM/blob/95515c2f87fba8982db5a519f9022277667b3cc9/3rdParty/inja/LICENSE)
+(MIT; Copyright (c) 2018-2025 Lars Berscheid) and
+[XGrammar](https://github.com/mlc-ai/xgrammar/blob/5b4e9ce9e72524037ae24ecd831b9b6604d2eb48/LICENSE)
+(Apache-2.0, pinned by the SDK). XGrammar is compiled into the runtime even when this
+application does not request guided output. These and their bundled dependencies must
+be included in the upgraded runtime inventory; the prior SDK inventory is not a complete
+inventory of 0.11. This paragraph does not replace those upstream license files.
+
 ## Piper (text-to-speech engine)
 
 The `piper` binary itself: MIT License, Copyright (c) 2022 Michael Hansen. Project:

@@ -33,7 +33,7 @@ set -euo pipefail
 # exactly - --host-quantize exports against the same pinned SDK commit and checkpoint
 # revision the Orin itself builds against, so the ONNX this produces is interchangeable
 # with what do_export_onnx_llm would have produced on-device.
-EDGELLM_COMMIT="e8b29522938901f6df19ebeedd4b69bc8edbcd97"   # tag v0.10.1
+EDGELLM_COMMIT="95515c2f87fba8982db5a519f9022277667b3cc9"   # tag v0.11.0
 COSMOS_MODEL_REPO="nvidia/Cosmos3-Edge"
 COSMOS_MODEL_REVISION="344d602b128d1bbdacb43b08d0a3626f46343e29"
 # Minimum available RAM (GiB, /proc/meminfo MemAvailable) --host-quantize requires before
@@ -292,6 +292,9 @@ PY
     --task reasoning --skip-visual --int4-gemm-plugin-version 2 \
     || { echo "!! V2 export failed on this host too - falling back to the standard on-Orin path (legacy V1 plugin)." >&2; return 1; }
   [[ -f "$onnx/llm/model.onnx" ]] || { echo "!! export reported success but $onnx/llm/model.onnx is missing - falling back to the standard on-Orin path." >&2; return 1; }
+  cmp -s "$raw/chat_template.jinja" "$onnx/llm/chat_template.jinja" \
+    || { echo "!! v0.11.0 export did not preserve the provider Jinja template - refusing this export." >&2; return 1; }
+  printf '%s\n' "$EDGELLM_COMMIT" > "$onnx/llm/.edgellm-commit"
 
   # Staged beside the live export, never over it, and flagged complete only once the copy has
   # finished: setup-orin.sh adopts it only with the flag (see adopt_host_export there).

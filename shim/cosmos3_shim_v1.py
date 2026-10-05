@@ -14,6 +14,7 @@ import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 # All four paths below are build outputs of NVIDIA's TensorRT-Edge-LLM SDK (see README.md
 # "1. Build TensorRT-Edge-LLM and the Cosmos3-Edge engine") - not part of this repo. Defaults assume you built it under
@@ -63,6 +64,15 @@ def _checkpoint_for(engine_dir: str) -> str:
 
 def _init_runtime():
     global _runtime
+    # v0.11.0 no longer reads processed_chat_template.json. An engine made by
+    # v0.10.1 needs a fresh export/build; fabricating a template here would hide
+    # both that incompatible engine ABI and a possible multimodal prompt error.
+    template = Path(ENGINE_DIR) / "chat_template.jinja"
+    if not template.is_file() or not template.read_bytes().strip():
+        raise RuntimeError("Engine lacks provider chat_template.jinja; rebuild the Cosmos3-Edge "
+                           "LLM and vision engines with TensorRT-Edge-LLM v0.11.0.")
+    if (Path(ENGINE_DIR) / "chat_template.model").exists():
+        raise RuntimeError("Conflicting native chat-template marker in Cosmos engine directory.")
     checkpoint_dir = _checkpoint_for(ENGINE_DIR)
     print(f"[shim] engine     = {os.path.realpath(ENGINE_DIR)}", flush=True)
     print(f"[shim] checkpoint = {checkpoint_dir}", flush=True)
@@ -75,10 +85,7 @@ def _init_runtime():
     # Warm-up so the first real request doesn't pay first-call cost.
     try:
         t0 = time.time()
-        inner = rt.Request([rt.Message("user", [rt.MessageContent("text", "hi")])])
-        req = rt.LLMGenerationRequest()
-        req.requests = [inner]
-        req.max_generate_length = 4
+        req = _build_request([{"role": "user", "content": "hi"}], 4, 0, 0.95)
         _runtime.handle_request(req)
         print(f"[shim] warm-up inference in {time.time()-t0:.2f}s", flush=True)
     except Exception as e:  # warm-up is best-effort
@@ -151,6 +158,11 @@ def _build_request(messages, max_tokens, temperature, top_p, top_k=50):
     req.temperature = float(temperature)
     req.top_p = float(top_p)
     req.top_k = int(top_k)
+    # Render the checkpoint's own Jinja in v0.11.0. Keep the live-caption path
+    # concise; do not inherit future runtime changes to these request defaults.
+    req.apply_chat_template = True
+    req.add_generation_prompt = True
+    req.enable_thinking = False
     return req
 
 
