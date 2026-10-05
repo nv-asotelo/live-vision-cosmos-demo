@@ -115,6 +115,12 @@ against the pinned SDK. These checks use fake runtimes/devices where needed. The
 not establish GPU compilation, real checkpoint export, engine loading, card boot,
 visual accuracy, RAM use or latency on the new SDK.
 
+A separate source audit confirmed that the existing SM87/AArch64 CuTe commands,
+CMake options and targets, Cosmos export flags, and LLM/visual engine-capacity flags
+are accepted by 0.11. The explicit pybind11, CuTe DSL, CuPy and NumPy pins match its
+requirements. The SDK's export dependencies also advance (including PyTorch and
+Transformers); installation success and export memory fit still need an actual build.
+
 Deploy from this candidate's committed checkout after the fresh Orin is reachable:
 
 ```bash

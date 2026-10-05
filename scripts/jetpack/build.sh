@@ -9,10 +9,14 @@ mkdir -p "$work" /mnt/downloads /mnt/helpers
 mount -t 9p -o trans=virtio,version=9p2000.L,ro downloads /mnt/downloads
 mount -t 9p -o trans=virtio,version=9p2000.L,ro helpers /mnt/helpers
 cd "$work"
+# The minimal cloud image does not include bzip2. Install archive and image-check
+# tools before extracting the BSP (whose own prerequisites script is inside it).
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -o Acquire::Retries=3
+apt-get install -y --no-install-recommends bzip2 zstd gdisk
 tar -xjf /mnt/downloads/Jetson_Linux_R39.2.1_aarch64.tbz2
 tar --numeric-owner -xjpf /mnt/downloads/Tegra_Linux_Sample-Root-Filesystem_R39.2.1_aarch64.tbz2 -C Linux_for_Tegra/rootfs
 cd Linux_for_Tegra
-export DEBIAN_FRONTEND=noninteractive
 ./tools/l4t_flash_prerequisites.sh
 ./apply_binaries.sh
 # Adapt only the download-local copy; retain NVIDIA's header and license in full.
