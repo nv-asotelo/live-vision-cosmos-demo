@@ -73,6 +73,38 @@ does not prove physical boot or model execution.
 - Update the dependency inventory for the new SDK, including Inja and XGrammar.
   Guided decoding can be unused while its compiled dependency is still present.
 
+## CuTe DSL decoding on Orin
+
+The SDK's **V2 INT4 plugin** has a CuTe DSL GEMV path for Orin SM87. For batch-one,
+single-token decoding the flattened row count is one; the plugin dispatches rows
+one through four to that path when the generated modules load. It uses CUDA cores
+for this small-row workload and shares the packed INT4 weights with the prefill
+GEMM path. Group size 128 matches this demo's quantizer.
+
+This path already existed in the pinned 0.10.1 baseline; it is not a new 0.11 speedup
+claim. The migration preserves access to it under the new ragged input contract.
+Compiling `fmha;int4_fp16_gemm` makes kernels available, but **does not convert a V1
+engine to V2**. The default on-Orin export remains V1 because of the prior 8 GB
+export-memory failure. CuTe attention (`fmha`) is a separate kernel path.
+
+For CuTe INT4 decoding, use the existing V2 export route from a qualifying Linux
+host with at least 12 GiB available RAM; no NVIDIA GPU is required on that host:
+
+```bash
+./scripts/bootstrap.sh --host-quantize <jetson-user>@<orin-address>
+```
+
+Engine building and inference still happen on the Orin. Native macOS does not meet
+the export dependency requirements. A Linux VM would be a separate Linux exporter
+whose dependencies and available RAM must be verified first; the 8 GiB SD-builder VM
+does not qualify. If bootstrap falls back to V1, do not label the resulting engine as
+CuTe INT4. Confirm the V2 export and runtime modules, then compare marginal
+milliseconds per generated token at matched settings. TTFT also includes vision
+and prompt processing, so a decode improvement need not yield the same TTFT gain.
+
+Sources: [V2 decode dispatch](https://github.com/NVIDIA/TensorRT-Edge-LLM/blob/95515c2f87fba8982db5a519f9022277667b3cc9/cpp/plugins/int4GroupwiseGemmPluginV2/int4GroupwiseGemmPluginV2.cpp#L369),
+[SM87 GEMV registry](https://github.com/NVIDIA/TensorRT-Edge-LLM/blob/95515c2f87fba8982db5a519f9022277667b3cc9/kernelSrcs/build_cutedsl.py#L2092).
+
 ## Acceptance and stopping rule
 
 First establish coherent text and accurate captions from a freshly built engine,
