@@ -71,6 +71,42 @@ class USBProbeTests(unittest.TestCase):
         self.assertEqual(result["state"], "serial_ready")
         self.assertEqual(len(result["devices"]), 1)
 
+    def test_acm_and_ncm_driver_properties_preserve_physical_device_identity(self):
+        # Sanitized shape of the macOS IOService tree: the Apple driver nodes
+        # repeat VID/PID but omit the interface's serial, location and number.
+        parent = usb(IOObjectClass="IOUSBHostDevice", IORegistryEntryID=101, locationID=42)
+        parent["IORegistryEntryChildren"] = []
+        for index, driver in enumerate(("AppleUSBACMData", "AppleUSBNCMData")):
+            descendant = ({"IOObjectClass": "IOSerialBSDClient", "IORegistryEntryID": 110,
+                           "IOCalloutDevice": "/dev/cu.usbmodem-fixture"} if index == 0 else
+                          {"IOObjectClass": "IOEthernetInterface", "IORegistryEntryID": 111})
+            interface = {"IOObjectClass": "IOUSBHostInterface", "IORegistryEntryID": 102 + index,
+                         "idVendor": 0x0955, "idProduct": 0x7020,
+                         "USB Serial Number": "fixture-new", "locationID": 42,
+                         "bInterfaceNumber": index, "IORegistryEntryChildren": [
+                             {"IOObjectClass": driver, "IOClass": driver,
+                              "IORegistryEntryID": 104 + index,
+                              "idVendor": 0x0955, "idProduct": 0x7020,
+                              "IOProviderClass": "IOUSBHostInterface",
+                              "IORegistryEntryChildren": [descendant]}]}
+            parent["IORegistryEntryChildren"].append(interface)
+        result = first_boot.classify_usb([parent], ["/dev/cu.usbmodem-fixture"], "fixture-new")
+        self.assertEqual(result["state"], "serial_ready")
+        self.assertEqual(len(result["devices"]), 1)
+        self.assertEqual(result["selected"]["serial_ports"], ["/dev/cu.usbmodem-fixture"])
+
+    def test_physical_child_device_never_merges_despite_interface_like_properties(self):
+        parent = usb(IOObjectClass="IOUSBHostDevice", IORegistryEntryID=201)
+        child = usb(IOObjectClass="IOUSBHostDevice", IORegistryEntryID=202,
+                    IOProviderClass="IOUSBHostInterface", bInterfaceNumber=0,
+                    ports=["/dev/cu.usbmodem-child"])
+        parent["IORegistryEntryChildren"] = [child]
+        result = first_boot.classify_usb([parent], ["/dev/cu.usbmodem-child"], "fixture-new")
+        self.assertEqual(result["state"], "ambiguous")
+        self.assertEqual(len(result["devices"]), 2)
+        self.assertEqual(result["devices"][0]["serial_ports"], [])
+        self.assertEqual(result["devices"][1]["serial_ports"], ["/dev/cu.usbmodem-child"])
+
     def test_other_vendor_descendant_breaks_device_correlation(self):
         parent = usb()
         parent["IORegistryEntryChildren"] = [{"idVendor": 0x1234, "idProduct": 1,

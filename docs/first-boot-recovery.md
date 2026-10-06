@@ -26,6 +26,26 @@ This probe does not log into a Jetson or scan the network. Compare observations
 before and after reconnecting the intended board. USB discovery alone does not
 identify the boot disk or establish which account exists.
 
+## Complete setup over Ethernet
+
+1. Keep Ethernet and the identified USB data connection attached throughout setup.
+2. If the wizard offers network interfaces, select the displayed **wired Ethernet**
+   interface. Do not guess an `eth0` name or select the USB gadget interface as the
+   Internet connection. Record the displayed choice and whether configuration succeeds.
+3. Finish every setup page and its final application step. Entering account details
+   is not proof that the account was saved; do not cancel networking on that assumption.
+4. Wait for completion. If USB serial disappears, probe again and reopen the
+   identified board's console; do not switch to a remembered IP address.
+5. Verify a **fresh login**, then run the [pre-install checks](#before-installing-live-vision)
+   below before accepting SSH or starting bootstrap.
+
+These expectations come from the pinned source, **not a successful resumed trial**:
+`ubi-network.py` places networking after the account page, while `debconf_ui.py`
+runs the installation components after the page sequence finishes. The pinned
+`nv-oobe-post.sh` restarts USB gadget mode and serial login after the default target
+leaves `nv-oobe.target`, so a USB reconnection may be needed at completion. The
+network wrapper delegates to `netcfg`; automatic Ethernet selection is not established.
+
 ## If setup does not proceed
 
 | What you see | What to do next | What it does not prove |
@@ -37,6 +57,7 @@ identify the boot disk or establish which account exists.
 | A screen looks frozen or arrow-key escape sequences are printed | Stop sending navigation keys. Capture the current prompt, check whether the serial session is still connected, and reopen that same console if necessary. | A stale terminal display is not proof that the board hung. Reconnecting the console does not complete the wizard. |
 | `login:` appears after a setup interruption | Try the exact account you created once. A successful shell prompt is the next checkpoint. | A login prompt does not prove setup saved a usable account or password. |
 | `Login incorrect` for the account you created | Stop retrying. Check the exact selected username and whether account creation was completed. If that remains uncertain, use the offline audit below. | Do not infer a default username/password, invent an account, or conclude the password was changed. |
+| A normal reboot still gives only `login:` and no verified account or setup wizard | Stop repeating passwords and reboots. Return the card for a read-only audit of the latest startup units and boot evidence; preserve an image before any targeted wizard repair. | An earlier enabled setup target does not prove the wizard started successfully on this boot. |
 | An old Orin answers at a familiar address | Stop. Return to the intended board's USB identity and obtain its address from its verified local console. | A responding service or familiar hostname is not permission to access another board. |
 | The console works but SSH does not | First verify login, the active root filesystem, and the new board's network address from its local shell. Then inspect SSH on that board. | A fresh OS may need account or network setup; this alone does not call for reflashing. |
 | No progress after these bounded checks | Preserve observations and identify the remaining uncertainty. Inspect the card offline or use NVIDIA's documented preboot console/firmware path as appropriate. | Do not enter recovery mode, reflash, or alter QSPI solely because USB was initially absent. |
@@ -82,8 +103,11 @@ administrator session is available.
    the card, preserve a recoverable copy and recheck its identity. Limit a repair
    to the diagnosed account/setup problem; do not overwrite the installation with
    the original clean image just to retry login. If no account was saved and the
-   first-time setup target remains enabled, resume that setup on normal boot before
-   considering an offline account change.
+   first-time setup target remains enabled, try resuming that setup on one normal
+   boot before considering an offline account change. If that retry still presents
+   only a login prompt, inspect the latest startup-unit state and boot evidence
+   offline. Do not assume the earlier audit still describes the current state or
+   keep rebooting; preserve an image before a targeted wizard repair.
 
 The audit is diagnostic. It does not reset a password, create an account, mount or
 unmount a disk, update firmware, or make the root filesystem writable. Password
@@ -102,15 +126,23 @@ From the new board's authenticated shell, collect:
 
 ```bash
 whoami
+systemctl get-default
 findmnt -n -o SOURCE /
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS
 cat /etc/nv_tegra_release
 df -h /
 ip -brief address
+ip route show default
+systemctl is-active ssh
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
 ```
 
-Confirm the intended user, SD root on `mmcblk0p1`, expected L4T release, expanded
-filesystem, and an address belonging to this board. Record its SSH host-key
-fingerprint through the identified console before accepting it from the Mac.
+Confirm the intended user, a default target other than `nv-oobe.target`, SD root on
+`mmcblk0p1`, L4T R39 revision 2.1, and an expanded partition and filesystem. Check
+that the address and default route belong to this board's wired connection.
+Record its SSH host-key fingerprint through the identified console and compare it
+when connecting from the Mac. If SSH or its key is unavailable, resolve that on this
+board first; do not bypass identity checks or use another Orin's keys.
 Only then return to [the demo Quickstart](../README.md#quickstart-automated-setup).
 Keep network and device identifiers in local deployment notes, not public source.
 
@@ -147,6 +179,7 @@ Identify the intended board and preserve any existing deployment.
     Login prompt -> ask the selected username; prefer user-entered credentials.
       Explicitly supplied credentials -> at most one controlled login attempt.
       Rejected -> stop guessing; preserve evidence -> offline read-only card audit.
+      Normal setup retry still shows only login -> inspect latest startup/boot evidence.
       Accepted -> verify user, SD root, release, capacity and board network identity.
         All verified -> bootstrap this board only.
   Repair needed -> establish cause, target identity and recoverable backup first.
@@ -167,8 +200,9 @@ the data cable was reinserted, a Linux USB console and the first-time setup wiza
 appeared. Later, leaving wireless setup was followed by a login prompt; a controlled
 login attempt with the reported account was rejected.
 
-The returned SD was identified and inspected read-only. It contained **no saved
-regular user account**, and `default.target` still pointed to `nv-oobe.target`:
+At the first offline inspection, the returned SD was identified and examined
+read-only. It contained **no saved regular user account**, and `default.target`
+still pointed to `nv-oobe.target`:
 first-time setup remained enabled. The card had L4T 39.2.1 and an approximately
 8 GiB root partition that had not expanded. Because its filesystem had a pending
 journal, these findings were confirmed after journal replay in a disposable
@@ -180,10 +214,19 @@ was not proof of a saved account. **The cause of the terminal errors remains
 unknown**; the evidence does not establish a cable fault, a cancellation bug,
 incompatible firmware, or a changed password.
 
-The next step is to detach inspection mounts, eject safely, then boot the card
-normally with a stable USB data connection. Complete the enabled setup wizard and
-verify a fresh login, root device and filesystem expansion. No offline password
-reset or reflash is needed for this diagnosed state.
+The subsequent retry used a full barrel-power shutdown and normal boot with SD
+and Ethernet attached. USB again appeared only after the data cable was reconnected.
+The identified board presented an Ubuntu 24.04.4 `ttyGS0` login prompt, without a
+setup wizard, and another user login was rejected. **Normal reboot alone did not
+restore setup.** This does not identify a hardware fault or establish what changed
+on disk during that boot.
+
+The latest saved default target, account state and boot logs remain unverified
+pending a second card audit. Stop further password/reboot retries, inspect the
+latest startup state read-only, and preserve an image before selecting a targeted
+wizard repair. The earlier audit must not be treated as evidence of the latest
+boot's saved state. A fresh login, root-device check and filesystem-expansion check
+are still required before installation.
 
 For preboot access and firmware requirements, use NVIDIA's
 [Orin Nano setup guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)

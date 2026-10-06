@@ -78,11 +78,17 @@ def classify_usb(registry, available_ports, expected_serial=None):
                 product = text_value(node.get("USB Product Name")) or ""
                 location = number_value(node.get("locationID"))
                 entry_id = number_value(node.get("IORegistryEntryID"))
-                # Vendor/product properties may repeat on interface nodes.
-                # Only coalesce matching descendants, not different devices
-                # merely advertising the same (or missing) USB serial number.
-                interface = ("Interface" in str(node.get("IOObjectClass", node.get("IOClass", ""))) or
-                             "bInterfaceNumber" in node)
+                # Interfaces and their drivers repeat vendor/product. macOS
+                # AppleUSBACMData and AppleUSBNCMData omit serial/location and
+                # bInterfaceNumber, but identify IOUSBHostInterface as their
+                # provider. Preserve their physical ancestor's identity.
+                # A real child USB device always starts a separate identity,
+                # even if it advertises the same serial as its parent.
+                node_class = str(node.get("IOObjectClass", node.get("IOClass", "")))
+                physical_device = node_class in {"IOUSBHostDevice", "IOUSBDevice"}
+                interface = (not physical_device and
+                             ("Interface" in node_class or "bInterfaceNumber" in node or
+                              node.get("IOProviderClass") in {"IOUSBHostInterface", "IOUSBInterface"}))
                 if (interface and parent_device is not None and
                         parent_device["product_id"] == product_id and
                         serial in (None, parent_device["serial"]) and

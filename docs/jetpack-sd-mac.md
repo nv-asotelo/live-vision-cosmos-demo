@@ -75,6 +75,10 @@ the Mac, identify the newly appearing `/dev/cu.usbmodem*` port, open that serial
 at 115200 baud, and press Enter. Create the initial user before attempting SSH. After
 setup, USB device mode provides serial login and USB networking; the Orin also needs
 internet access for the subsequent dependency/model downloads.
+With Ethernet connected, follow the [wired setup checklist](first-boot-recovery.md#complete-setup-over-ethernet):
+select the displayed wired interface if offered, finish all setup pages, and verify
+a fresh login, SD expansion and this board's SSH identity. Account entry alone is
+not completion; the pinned completion script may restart the USB connection.
 
 If no USB device appears, check power and reconnect the data cable before concluding
 that firmware is incompatible. If setup is interrupted or canceled, a subsequent
@@ -121,11 +125,15 @@ account did not pass the controlled login check. A read-only card audit, confirm
 after journal replay into a disposable copy-on-write overlay, found no saved regular
 user, first-time setup still enabled, and the approximately 8 GiB root partition
 not yet expanded. OEM setup had logged terminal-discovery input/output errors; their
-underlying cause remains unknown. The physical card was unchanged. After safe
-ejection, the next step is normal boot with a stable USB data connection, completion
-of the setup wizard, and a fresh login check. An authenticated check of the active
-SD root, successful expansion, compute installation, and Live Vision remain
-unverified. Host image validation and flash verification do not establish those results. See
+underlying cause remains unknown. That inspection left the physical card unchanged.
+A subsequent full power-off/normal-boot retry with SD and Ethernet again required a
+USB cable reconnect and reached only a login prompt; the setup wizard did not appear
+and another user login failed. Normal reboot alone was insufficient. The latest
+saved setup/account state remains unknown pending another read-only card audit;
+inspect startup units and current-boot evidence, preserving an image before any
+targeted repair. An authenticated check of the active SD root, successful expansion,
+compute installation, and Live Vision remain unverified. Host image validation and
+flash verification do not establish those results. See
 [the first-boot observations](first-boot-recovery.md#what-has-been-observed).
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
