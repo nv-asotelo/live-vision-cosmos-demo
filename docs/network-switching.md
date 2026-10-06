@@ -1,7 +1,8 @@
 # Change Wi-Fi after the demo works
 
-**Draft procedure; not yet validated on the trial hardware.** Command syntax was
-checked against the official references below. Record hardware results separately;
+**Draft procedure; not yet validated on the trial hardware.** The board reports
+NetworkManager 1.46.0; checkpoint syntax was checked against that version's source.
+Record hardware results separately;
 do not treat these instructions as evidence that a network switch succeeded.
 
 Start only after wired setup, a fresh login, adequate SD space, and **a real image
@@ -110,26 +111,55 @@ system, repeat that specific check with `sudo` after inspecting the error.
 
 From the client, open the UI at the newly observed Wi-Fi address and verify it is
 the same board. Check its known SSH fingerprint before accepting SSH at a new
-address. Submit a real image and read its caption. Keep browser/network timing
-separate from server inference timing when recording results.
+address. Submit a real image and read its caption. **With Ethernet still active,
+this establishes address reachability, not a Wi-Fi-only inference path.** On the
+same subnet, Linux can accept or return traffic through Ethernet even when the
+destination is the Wi-Fi address. The interface-bound curl check above and the
+handover below establish different checkpoints; keep their results separate.
+[Linux interface/ARP behavior](https://docs.kernel.org/networking/ip-sysctl.html#arp-filter-boolean).
+Keep browser/network timing separate from server inference timing.
 
 ## 4. Validate a brief Wi-Fi-only handover
 
-Use the USB console, with no active installer/download. Confirm that the installed
-`nmcli device help` includes `checkpoint` before using this command:
+Use the USB console, with no active installer/download. Check capability directly:
+
+```bash
+nmcli device checkpoint --help
+```
+
+NetworkManager 1.46.0 supports the two interface arguments below even though its
+checkpoint help omits them, and its top-level device help may omit `checkpoint`
+entirely. The version's parser consumes the supplied interface names before `--`,
+limiting the snapshot to these two devices. Do not drop those names and silently
+checkpoint every interface. [NetworkManager 1.46.0 parser](https://github.com/NetworkManager/NetworkManager/blob/1.46.0/src/nmcli/devices.c#L4818).
+
+After Wi-Fi has passed the bound-interface check, run:
 
 ```bash
 sudo nmcli device checkpoint --timeout 90 "$ETH_IFACE" "$WIFI_IFACE" -- \
   nmcli device disconnect "$ETH_IFACE"
 ```
 
-The checkpoint asks for confirmation after the disconnect. While it waits, test
-the UI and one real inference from the client over the observed Wi-Fi address.
-If the test fails, leave the change unconfirmed so the checkpoint restores the
-previous state. If it works, confirm in the USB console, then inspect the default
-routes and repeat the HTTPS test without Ethernet. Ensure the tested traffic has
-no alternative VPN or USB upstream route before calling it Wi-Fi-only.
-[NetworkManager checkpoints](https://networkmanager.dev/docs/api/latest/nmcli.html#device).
+Read the child command's output: merely reaching the confirmation prompt does
+not prove Ethernet disconnected. The 90-second rollback window starts when the
+checkpoint is created, not when the confirmation prompt appears. While it waits,
+test a fresh UI request and one real inference at the observed Wi-Fi address.
+Confirm only after the disconnect and intended path are verified, using the exact
+word requested by the prompt (`Yes` in English, not `y`). Otherwise leave it
+unconfirmed. Timeout attempts restoration and normally returns exit status 3;
+verify the actual Ethernet state and routes afterward instead of inferring either
+rollback success or failure from that status alone.
+
+After confirmation, inspect addresses and routes and repeat the bound-interface
+HTTPS check. An Ethernet device marked disconnected by NetworkManager is not, by
+itself, proof of the path taken by a same-subnet browser request. For a strict
+Wi-Fi-only inference result, also verify that the request/response uses Wi-Fi with
+no Ethernet traffic, or test with the Ethernet cable physically unplugged while
+retaining USB control. In the latter case, replug it before expecting automatic
+wired restoration. Exclude alternative VPN/USB upstream routes. If the path cannot
+be established, record only the narrower connectivity result.
+[NetworkManager 1.46.0 confirmation handling](https://github.com/NetworkManager/NetworkManager/blob/1.46.0/src/nmcli/devices.c#L4709),
+[rollback implementation](https://github.com/NetworkManager/NetworkManager/blob/1.46.0/src/core/nm-checkpoint.c#L188).
 
 Do not perform this handover from the only available SSH session. If checkpoint
 support or the USB console is unavailable, keep Ethernet active and report the
@@ -138,7 +168,10 @@ profiles or reset the networking stack blindly.
 
 ## 5. Restore Ethernet as the final connection
 
-Use the USB console to reactivate the exact saved wired profile:
+Finish the checkpoint first: either commit it or wait for its removal and inspect
+the resulting state. Do not change final profile settings while a live checkpoint
+could still restore older values. Use the USB console to reactivate the exact saved
+wired profile:
 
 ```bash
 sudo nmcli connection up uuid "$ETH_UUID" ifname "$ETH_IFACE"
