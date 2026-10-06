@@ -120,6 +120,50 @@ unmount, and eject safely. Tell the user the card is safe to remove only after
 ejection succeeds. Verify a **fresh login on the board** before claiming the account
 is repaired.
 
+## Temporary headless-entry recovery candidate
+
+**Pending: prepared on a disposable copy, not yet applied to the SD or validated
+on an Orin.** This candidate addresses the diagnosed case of an enabled setup
+target, intact OEM programs and no saved regular user. It is not a general boot
+repair or a replacement for NVIDIA's setup wizard. It is an **opt-in recovery**;
+the normal image builder and demo installer do not install these overrides.
+
+The entry helper requires root, exactly `nv-oobe.target` as the default, readable
+valid local account metadata with no regular user, and the expected executable OEM
+programs. It stops only the `ttyGS0` serial getty, waits up to 20 minutes for an
+explicit **Enter on an empty line**, and handles USB disconnects while waiting.
+It rechecks the prerequisites before handing the console to the vendor wizard.
+The vendor child service conflicts with and starts after the `ttyGS0` getty;
+the outer service retains NVIDIA's existing `ExecStopPost` behavior. The helper
+does not reset wizard answers, precreate an account, set a password or log terminal
+input. The user must still complete every setup page and verify a fresh login.
+
+The candidate adds exactly these three files from the linked project sources:
+
+- `/usr/local/lib/live-vision-first-boot/headless_retry.py` — [entry helper](../scripts/jetpack/headless_retry.py).
+- `/etc/systemd/system/nv-oobe.service.d/50-live-vision-headless-retry.conf` — [outer service override](../systemd/recovery/nv-oobe.service.d-50-live-vision-headless-retry.conf).
+- `/etc/systemd/system/nv-oem-config-debconf@ttyGS0.service.d/50-live-vision-console-owner.conf` — [console ownership override](../systemd/recovery/nv-oem-config-debconf@ttyGS0.service.d-50-live-vision-console-owner.conf).
+
+Seventeen [mocked/PTY helper tests](../scripts/jetpack/test_headless_retry.py),
+sixteen patcher fixture tests, and an isolated
+Linux VM service-handoff test passed. Full target-unit verification and a physical
+wizard run remain unverified. On the disposable copy, filesystem inspection found
+five deleted inodes with zero links, zero length and no extents. After repairing
+their orphan-list errors on that copy, a full `e2fsck -f -n` check exited cleanly.
+The three added files matched their expected hashes, and no account was precreated.
+
+The original backup and repaired image were verified. A write dry run identified
+13 changed 4 MiB chunks: 52 MiB to rewrite, containing 113,655 changed bytes.
+The physical write is still pending; these copy and preflight checks are not a
+successful card repair or hardware boot result.
+
+After successful setup and the [pre-install checks](#before-installing-live-vision),
+optional cleanup removes **only those three added files**, after checking they are
+the recovery files expected, followed by `sudo systemctl daemon-reload`. Do not
+remove an entire drop-in directory, alter vendor files, or remove the helper while
+the wizard is active. Retain the pre-repair backup until the board passes a fresh
+login and normal boot.
+
 ## Before installing Live Vision
 
 From the new board's authenticated shell, collect:
@@ -221,12 +265,20 @@ setup wizard, and another user login was rejected. **Normal reboot alone did not
 restore setup.** This does not identify a hardware fault or establish what changed
 on disk during that boot.
 
-The latest saved default target, account state and boot logs remain unverified
-pending a second card audit. Stop further password/reboot retries, inspect the
-latest startup state read-only, and preserve an image before selecting a targeted
-wizard repair. The earlier audit must not be treated as evidence of the latest
-boot's saved state. A fresh login, root-device check and filesystem-expansion check
-are still required before installation.
+The second card audit matched the same physical SD. Its filesystem mount counter
+had increased from two to three, confirming another mount since the earlier audit.
+The user also confirmed that this boot used the SD alone, with no NVMe or USB
+installer attached. A complete 8 GiB root-partition backup was preserved with a
+SHA-256 checksum before any repair; the physical card remained read-only.
+
+After journal replay in a disposable copy, the second audit again found no regular
+account, `nv-oobe.target` as the default, and the OEM setup programs present. The
+saved OEM logs still contained the same four terminal-discovery errors; they did
+not establish a new cause for the latest boot's behavior. The
+[temporary headless entry override](#temporary-headless-entry-recovery-candidate)
+has passed its copy checks and write preflight for this diagnosed state. It has not
+been applied to the card or validated on hardware. A fresh login, root-device check and
+filesystem-expansion check are still required before installation.
 
 For preboot access and firmware requirements, use NVIDIA's
 [Orin Nano setup guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)

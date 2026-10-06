@@ -128,12 +128,18 @@ not yet expanded. OEM setup had logged terminal-discovery input/output errors; t
 underlying cause remains unknown. That inspection left the physical card unchanged.
 A subsequent full power-off/normal-boot retry with SD and Ethernet again required a
 USB cable reconnect and reached only a login prompt; the setup wizard did not appear
-and another user login failed. Normal reboot alone was insufficient. The latest
-saved setup/account state remains unknown pending another read-only card audit;
-inspect startup units and current-boot evidence, preserving an image before any
-targeted repair. An authenticated check of the active SD root, successful expansion,
-compute installation, and Live Vision remain unverified. Host image validation and
-flash verification do not establish those results. See
+and another user login failed. Normal reboot alone was insufficient. A second
+read-only audit matched the same card and confirmed an increased mount counter;
+after journal replay in a disposable copy, it again found no regular account,
+the setup target enabled, and OEM programs present. Saved terminal-error logs were
+unchanged, so the underlying cause remains unknown. A complete checksummed
+root-partition backup was preserved. A temporary headless entry override passed
+checks on a repaired disposable copy, including a clean full filesystem check and
+write preflight, but is not yet applied or hardware-validated. This
+[opt-in recovery](first-boot-recovery.md#temporary-headless-entry-recovery-candidate)
+is separate from the normal installer. An authenticated check of
+the active SD root, successful expansion, compute installation, and Live Vision
+remain unverified. Host image validation and flash verification do not establish those results. See
 [the first-boot observations](first-boot-recovery.md#what-has-been-observed).
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
