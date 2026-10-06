@@ -75,10 +75,20 @@ the Mac, identify the newly appearing `/dev/cu.usbmodem*` port, open that serial
 at 115200 baud, and press Enter. Create the initial user before attempting SSH. After
 setup, USB device mode provides serial login and USB networking; the Orin also needs
 internet access for the subsequent dependency/model downloads.
-With Ethernet connected, follow the [wired setup checklist](first-boot-recovery.md#complete-setup-over-ethernet):
+**Prefer wired Ethernet directly to the router for first-time setup.** If Wi-Fi
+is required, stay near the router with minimal obstructions and clear line of sight
+where practical; a stable signal reduces interruptions and incomplete setup.
+Wi-Fi causing SD/filesystem corruption has not been established here.
+Follow the [wired setup checklist](first-boot-recovery.md#complete-setup-over-ethernet):
 select the displayed wired interface if offered, finish all setup pages, and verify
 a fresh login, SD expansion and this board's SSH identity. Account entry alone is
 not completion; the pinned completion script may restart the USB connection.
+
+**Recommended hostname: `orin-testbench`.** The hostname names the device; the
+login username is separate. Choose another unique hostname if this one is already
+in use, using lowercase letters, numbers and hyphens with no spaces. Follow the
+[hostname and network checks](first-boot-recovery.md#complete-setup-over-ethernet);
+`.local` name resolution is not guaranteed.
 
 If no USB device appears, check power and reconnect the data cable before concluding
 that firmware is incompatible. If setup is interrupted or canceled, a subsequent
@@ -145,9 +155,38 @@ device disappearing. The checksum-verified backup remains in private durable
 storage. Retain it and inspect the report before any retry; never retry
 automatically. The repair was not successful. This
 [opt-in recovery](first-boot-recovery.md#temporary-headless-entry-recovery-candidate)
-is separate from the normal installer. An authenticated check of
-the active SD root, successful expansion, compute installation, and Live Vision
-remain unverified. Host image validation and flash verification do not establish those results. See
+is separate from the normal installer.
+
+A later connection matched the same new board's USB identity. With one serial
+session open, the vendor's System Configuration prompt appeared; one Enter opened
+the actual wizard at the UTC-clock question. It subsequently reached hostname
+entry and “Installing system” at 0%. USB then disconnected and the same board
+re-enumerated. The
+prompt used the vendor wording, not the custom helper's wording. Whether the
+patch was applied remains unknown; the failed repair cannot be credited with this
+result. The console then reached the chosen user's shell. Checks confirmed
+`graphical.target`, ext4 root on `/dev/mmcblk0p1`, L4T 39.2.1, wired Ethernet with
+a default route, and active SSH; its host-key fingerprint was obtained through the
+local console. Account/shell access and wired networking work, but explicit logout
+and fresh login are still unverified because this may be a post-setup automatic login.
+
+Expansion initially blocked installation: the approximately 58.9 GiB card retained an
+approximately 8 GiB root partition. Its roughly 7.8 GiB filesystem reported 100%
+usage, with about 31 MiB free. Completing the wizard did not establish expansion.
+
+**Guarded manual expansion then succeeded on the new Orin.** After verified GPT
+backups and layout/dry-run checks, `growpart` increased only the physically last
+APP partition's size. Its start and partition metadata were preserved, the kernel
+reported the new size, and online `resize2fs` preserved the filesystem UUID. GPT
+verification found no problems. The filesystem now reports about **57 GiB total,
+47 GiB available and 14% used**, passing the 25 GiB free-space requirement. See the
+[layout-guarded workflow](first-boot-recovery.md#if-app-did-not-expand) and
+[NVIDIA's resizing guidance](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#resizing-the-root-partition-to-fill-the-available-sd-card-space).
+A reboot was initiated for the pending NVIDIA bootloader-capsule/system update.
+The same board returned on USB with its chosen hostname at the login prompt.
+Fresh login, post-reboot root/storage checks, compute installation and Live Vision
+remain unverified. Host image validation and
+flash verification do not establish those results. See
 [the first-boot observations](first-boot-recovery.md#what-has-been-observed).
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download

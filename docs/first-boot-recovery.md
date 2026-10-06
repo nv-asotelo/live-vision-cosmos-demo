@@ -28,18 +28,29 @@ identify the boot disk or establish which account exists.
 
 ## Complete setup over Ethernet
 
+**Prefer wired Ethernet directly to the router for first-time setup.** If Wi-Fi
+is required, stay near the router, minimize obstructions and keep a clear line of
+sight where practical. Use a stable signal to reduce network interruptions and
+the risk of incomplete setup. Wi-Fi causing SD or filesystem corruption has not
+been established in this trial.
+
 1. Keep Ethernet and the identified USB data connection attached throughout setup.
 2. If the wizard offers network interfaces, select the displayed **wired Ethernet**
    interface. Do not guess an `eth0` name or select the USB gadget interface as the
    Internet connection. Record the displayed choice and whether configuration succeeds.
-3. Finish every setup page and its final application step. Entering account details
+3. **Recommended hostname: `orin-testbench`.** This names the new device; the login
+   username is a separate field. If that hostname is already in use, choose another
+   unique name using lowercase letters, numbers and hyphens, with no spaces.
+   Use the verified IP address for SSH; `.local` resolution depends on the network.
+4. Finish every setup page and its final application step. Entering account details
    is not proof that the account was saved; do not cancel networking on that assumption.
-4. Wait for completion. If USB serial disappears, probe again and reopen the
+5. Wait for completion. If USB serial disappears, probe again and reopen the
    identified board's console; do not switch to a remembered IP address.
-5. Verify a **fresh login**, then run the [pre-install checks](#before-installing-live-vision)
+6. Verify a **fresh login**, then run the [pre-install checks](#before-installing-live-vision)
    below before accepting SSH or starting bootstrap.
 
-These expectations come from the pinned source, **not a successful resumed trial**:
+The pinned source describes the following behavior; trial observations are recorded
+[below](#what-has-been-observed):
 `ubi-network.py` places networking after the account page, while `debconf_ui.py`
 runs the installation components after the page sequence finishes. The pinned
 `nv-oobe-post.sh` restarts USB gadget mode and serial login after the default target
@@ -60,6 +71,7 @@ network wrapper delegates to `netcfg`; automatic Ethernet selection is not estab
 | A normal reboot still gives only `login:` and no verified account or setup wizard | Stop repeating passwords and reboots. Return the card for a read-only audit of the latest startup units and boot evidence; preserve an image before any targeted wizard repair. | An earlier enabled setup target does not prove the wizard started successfully on this boot. |
 | An old Orin answers at a familiar address | Stop. Return to the intended board's USB identity and obtain its address from its verified local console. | A responding service or familiar hostname is not permission to access another board. |
 | The console works but SSH does not | First verify login, the active root filesystem, and the new board's network address from its local shell. Then inspect SSH on that board. | A fresh OS may need account or network setup; this alone does not call for reflashing. |
+| Setup reaches a shell, but the SD root is still approximately 8 GiB or full | Stop before installing the demo. Inspect the partition layout and filesystem size, preserve a backup, and resolve expansion on this verified board. | Completing the wizard does not establish that the root partition or filesystem expanded. |
 | No progress after these bounded checks | Preserve observations and identify the remaining uncertainty. Inspect the card offline or use NVIDIA's documented preboot console/firmware path as appropriate. | Do not enter recovery mode, reflash, or alter QSPI solely because USB was initially absent. |
 
 **Do not assume Cancel or Ctrl-C safely completes first-time setup.** A visible
@@ -123,7 +135,8 @@ is repaired.
 ## Temporary headless-entry recovery candidate
 
 **Physical repair attempt failed; whether any bytes were written remains unknown.
-Hardware recovery is unverified.** This candidate addresses the diagnosed case of an enabled setup
+The candidate's hardware effect is unverified.** A later vendor-wizard entry was
+observed, but cannot be attributed to this patch. This candidate addresses an enabled setup
 target, intact OEM programs and no saved regular user. It is not a general boot
 repair or a replacement for NVIDIA's setup wizard. It is an **opt-in recovery**;
 the normal image builder and demo installer do not install these overrides.
@@ -147,7 +160,7 @@ The candidate adds exactly these three files from the linked project sources:
 Seventeen [mocked/PTY helper tests](../scripts/jetpack/test_headless_retry.py),
 sixteen patcher fixture tests, and an isolated
 Linux VM service-handoff test passed. Full target-unit verification and a physical
-wizard run remain unverified. On the disposable copy, filesystem inspection found
+helper-driven wizard handoff remain unverified. On the disposable copy, filesystem inspection found
 five deleted inodes with zero links, zero length and no extents. After repairing
 their orphan-list errors on that copy, a full `e2fsck -f -n` check exited cleanly.
 The three added files matched their expected hashes, and no account was precreated.
@@ -165,7 +178,8 @@ visible, and `diskutil eject` succeeded; the device then disappeared. The
 checksum-verified backup remains in a private durable cache. Retain that backup
 and inspect the privileged report's phase and write counters before deciding what
 to do next. **Never automatically retry this write** or treat ejection as proof of
-a successful repair. Boot and login remain unverified.
+a successful repair. The subsequent wizard-entry observation below does not verify
+this patch, account completion or the active root filesystem.
 
 After successful setup and the [pre-install checks](#before-installing-live-vision),
 optional cleanup removes **only those three added files**, after checking they are
@@ -199,6 +213,37 @@ when connecting from the Mac. If SSH or its key is unavailable, resolve that on 
 board first; do not bypass identity checks or use another Orin's keys.
 Only then return to [the demo Quickstart](../README.md#quickstart-automated-setup).
 Keep network and device identifiers in local deployment notes, not public source.
+
+**Do not start the demo installer while the SD root remains unexpanded or full.**
+Verify both partition and filesystem size; the fresh installation needs 25 GiB
+free. A working account, Ethernet and SSH do not substitute for this check.
+
+### If APP did not expand
+
+Use NVIDIA's [SD root-partition resizing guidance](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#resizing-the-root-partition-to-fill-the-available-sd-card-space)
+with the **observed layout of the identified board**. Do not copy sector offsets
+from another card or assume partition number implies physical order.
+
+1. Confirm the active ext4 root is the intended SD's APP partition. Save a binary
+   GPT backup and a readable partition-table dump; keep a verified copy off-device
+   alongside the existing filesystem backup.
+2. Inspect every partition's start and size. Continue only if APP is physically
+   last and the unused space follows it contiguously. Otherwise stop and derive a
+   different layout-specific procedure; do not move boot partitions speculatively.
+3. Review a `growpart` dry run for that disk and APP partition. Require an unchanged
+   APP start and only its size increasing; preserve every partition's identifier,
+   type, name and UUID, and all other entries.
+4. Apply that reviewed `growpart` change and compare the resulting partition table
+   against the saved one. **Before `resize2fs`, verify that the kernel reports APP's
+   new size**, using `lsblk` and `blockdev --getsize64` on the identified partition.
+   Stop if the kernel still reports the old size or another entry changed.
+5. Run `resize2fs` on the confirmed ext4 APP partition. Verify its filesystem UUID
+   is unchanged, check the GPT with `sgdisk --verify`, and recheck `findmnt`, `lsblk`
+   and `df -h /`. Installation requires at least 25 GiB free. After any required
+   reboot, repeat the root/size checks and verify a fresh login before proceeding.
+
+This guarded manual route succeeded on the trial board described below. It does
+not establish that every image or partition layout supports the same operation.
 
 ## If the demo installer stops
 
@@ -290,8 +335,47 @@ passed its copy checks and write preflight for this diagnosed state, but the
 subsequent physical writer failed. Whether it changed any card bytes is unknown
 until its privileged phase/counters are inspected; the visible log alone cannot
 resolve that. The card was safely ejected after identity and handle checks, and
-the verified backup is retained. Repair, fresh login, root-device identity and
-filesystem expansion remain unverified; do not retry the write automatically.
+the verified backup is retained. Those actions did not establish a successful
+repair, fresh login, root-device identity or filesystem expansion; do not retry
+the write automatically.
+
+On a subsequent connection, the same new board's USB identity was matched and a
+single serial session was opened. The console displayed the vendor prompt
+“Press ENTER to start System Configuration...”. One Enter opened the actual wizard
+at “Is the system clock set to UTC?”. This is a **verified wizard-entry checkpoint**,
+not verified setup completion. The wizard subsequently reached hostname entry
+and then displayed “Installing system” at 0%. The USB session ended and the same
+board re-enumerated. That reconnect alone did not establish installation completion.
+The prompt did not contain the custom helper's
+“on an empty line” wording; patch application remains unknown, and this observation
+does not establish that the failed Mac repair caused recovery.
+
+The console subsequently reached a shell under the chosen user and hostname.
+Checks confirmed `graphical.target`, an ext4 root on `/dev/mmcblk0p1`, L4T 39.2.1,
+wired Ethernet with a default route, and active SSH. Its SSH host-key fingerprint
+was read through the identified local console. **Account/shell access and wired
+networking are now working.** An explicit logout and fresh login have not yet been
+verified; the post-setup shell may have been opened automatically.
+
+Filesystem expansion initially blocked installation. On the approximately 58.9 GiB SD card,
+the root partition was still about 8 GiB; its roughly 7.8 GiB filesystem had 7.4 GiB
+used and only about 31 MiB available, reporting 100% usage. The completed system
+wizard did not establish expansion.
+
+**Expansion then succeeded on the actual new Orin.** GPT backups were saved and an
+off-device copy verified. The observed layout and dry run established that APP was
+physically last. The guarded `growpart` operation changed only APP's size while
+preserving its start and all other partition metadata; the kernel reported the new
+size before online `resize2fs` ran. The filesystem UUID was unchanged. GPT
+verification reported no structural problems and also noted partition-end alignment
+cautions. The resulting filesystem reported about **57 GiB total, 7.4 GiB used
+and 47 GiB available (14% used)**. The 25 GiB fresh-install free-space gate now passes.
+
+A reboot was initiated for the pending NVIDIA bootloader-capsule/system update.
+The same board returned on USB and displayed the chosen hostname at its login
+prompt. An explicit fresh login and post-reboot root/storage checks remain pending. Expansion success
+does not establish completion of that update or successful demo installation, and
+no cause is attributed to the failed Mac repair.
 
 For preboot access and firmware requirements, use NVIDIA's
 [Orin Nano setup guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)
