@@ -101,3 +101,22 @@ before the first speech request is expected.
 4. Test speech only when requested; report synthesis and audible playback separately.
 5. Reopen settings after **Skip** to confirm adding a robot remains possible.
    Record performed checks separately from untested hardware behavior.
+
+## Validation on 2026-10-06
+
+The upgrade was applied to the new SD-based Orin Nano deployment using
+`--reachy-only`. The inference process kept its PID, and both language and vision
+engine hashes were unchanged. A fresh image upload still produced a coherent
+panda caption through the HTTPS UI.
+
+The bridge dependencies passed `pip check`. Starting the bridge with an empty
+address cleanly skipped its execution rather than entering a restart loop. The
+services panel showed **Not configured** for the bridge and **Idle · connect
+Reachy Mini** for Piper. A bounded discovery request returned no verified robot;
+manual entry and skip remained available. No robot was selected or controlled.
+
+Offline checks passed: 89 Python UI tests, 55 installer tests and 32 JavaScript
+tests. Desktop and mobile browser checks used synthetic robot responses to test
+selection, manual entry, persistent skip, later connection, malformed settings,
+and preservation of a running webcam. Those checks do not establish a working
+physical Reachy camera or audible speech; both remain pending robot selection.

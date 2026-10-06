@@ -1,5 +1,11 @@
 # First-boot setup and recovery
 
+After account setup and confirmed image inference, use
+[Optional Reachy Mini setup](reachy-setup.md) to discover a robot, enter its address,
+or skip it. Reachy and Piper preparation is separate from first boot; a missing
+robot is not a reason to reflash or rebuild an otherwise working demo. The same
+robot setup controls remain available in Live Vision after installation.
+
 Use this guide after preparing the [JetPack SD card](jetpack-sd-mac.md), before
 running the demo installer. A verified card write, a USB console, a login prompt,
 and a working user account are separate checkpoints.
