@@ -58,6 +58,8 @@ done
 # Fixed, not configurable: setup-orin.sh, the systemd units and the shim all hardcode it.
 INSTALL_DIR=/opt/live-vision-cosmos-demo
 SETUP_ORIN_USER="${SETUP_ORIN_USER:-}"   # defaults to the ssh login user, remote-side
+[[ "${REACHY_SETUP_SKIP:-0}" == 0 || "${REACHY_SETUP_SKIP:-0}" == 1 ]] \
+  || { echo 'REACHY_SETUP_SKIP must be 0 or 1.' >&2; exit 2; }
 
 if [[ -z "$TARGET" ]]; then
   cat >&2 <<'USAGE'
@@ -71,8 +73,10 @@ Optional env vars:
   HF_TOKEN          Not needed: nvidia/Cosmos3-Edge is public and not gated on Hugging
                     Face. If you set one anyway, the download uses it.
   REACHY_MINI_IP    IP or hostname of a Reachy Mini robot on the same LAN. Omit for
-                    camera+captioning only, with no robot-control panels. Change it (or add a
-                    robot) later on the Orin with scripts/set-reachy-ip.sh - no re-run needed.
+                    discovery/manual/skip during interactive setup, or configure later in
+                    the UI's Reachy settings. No model rebuild is needed.
+  REACHY_SETUP_SKIP Set to 1 to explicitly skip robot connection; dependencies remain ready
+                    for later configuration in the UI.
   SETUP_ORIN_USER   Account setup-orin.sh should own the install and run services as.
                     Default: whichever account you SSH in as.
 
@@ -94,6 +98,11 @@ command -v scp >/dev/null || { echo "scp not found on this laptop - install an O
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "$REPO_ROOT/scripts/setup-orin.sh" ]] || { echo "internal error: $REPO_ROOT doesn't look like this repo (scripts/setup-orin.sh missing)." >&2; exit 2; }
+if [[ -n "${REACHY_MINI_IP:-}" ]]; then
+  source "$REPO_ROOT/scripts/reachy-address.sh"
+  reachy_address_valid "$REACHY_MINI_IP" \
+    || { echo 'REACHY_MINI_IP must be an IP address or hostname, without quotes, scheme, port or path.' >&2; exit 2; }
+fi
 
 # ---------------------------------------------------------------------------------------
 # Host-accelerated quantization (--host-quantize only)
@@ -330,7 +339,9 @@ if git -C "$REPO_ROOT" rev-parse HEAD >/dev/null 2>&1; then
   # commit first) if you're iterating on scripts/ and want those changes deployed.
   git -C "$REPO_ROOT" archive --format=tar HEAD | ssh "$TARGET" "tar -x -C '$INSTALL_DIR'"
 else
-  tar --exclude=.git -cf - -C "$REPO_ROOT" . | ssh "$TARGET" "tar -x -C '$INSTALL_DIR'"
+  tar --exclude=.git --exclude=reachy.env --exclude=reachy-setup.json \
+    --exclude=reachy-setup.lock --exclude='.reachy-*' \
+    -cf - -C "$REPO_ROOT" . | ssh "$TARGET" "tar -x -C '$INSTALL_DIR'"
 fi
 
 if [[ "$HOST_QUANTIZE" -eq 1 ]]; then
@@ -357,6 +368,6 @@ if [[ -n "${HF_TOKEN:-}" ]]; then
   printf '%s\n' "$HF_TOKEN" | ssh "$TARGET" "umask 077 && cat > '$token_file'"
   token_env="HF_TOKEN_FILE='$token_file' "
 fi
-ssh -t "$TARGET" "sudo -E env ${token_env}REACHY_MINI_IP='${REACHY_MINI_IP:-}' SERVICE_USER='$REMOTE_USER' bash '$INSTALL_DIR/scripts/setup-orin.sh'"
+ssh -t "$TARGET" "sudo -E env ${token_env}REACHY_MINI_IP='${REACHY_MINI_IP:-}' REACHY_SETUP_SKIP='${REACHY_SETUP_SKIP:-0}' SERVICE_USER='$REMOTE_USER' bash '$INSTALL_DIR/scripts/setup-orin.sh'"
 
 echo "==> done. See the URL setup-orin.sh printed above, or open https://${TARGET#*@}:8443/ using the Orin's actual IP (not the SSH hostname, if those differ)."

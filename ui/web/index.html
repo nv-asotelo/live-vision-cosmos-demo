@@ -23,6 +23,22 @@
       <div id="engineSwitchProgress" class="switch-progress" hidden role="progressbar" aria-label="Model switch progress" aria-valuemin="0" aria-valuemax="100"><div id="engineSwitchProgressFill" class="switch-progress-fill"></div></div>
       <p id="engineSwitchHint" class="hint">Checking model availability on this device.</p>
     </section>
+    <details id="reachySetup" class="reachy-setup">
+      <summary><span>Reachy Mini setup <small>Optional</small></span><span id="reachySetupSummary">Checking setup…</span></summary>
+      <div class="reachy-setup-body">
+        <p class="hint">Add a Reachy Mini now or later. Your browser camera and image uploads work without a robot. Discovery looks for Reachy advertisements on the Orin’s local network; it does not connect to a robot automatically.</p>
+        <p id="reachySetupStatus" class="reachy-setup-status" role="status" aria-live="polite">Checking saved configuration…</p>
+        <div class="controls"><button id="reachyDiscoverButton" type="button">Find Reachy Mini</button><button id="reachySetupRefresh" type="button">Refresh status</button></div>
+        <div id="reachyDiscovered" class="reachy-discovered" hidden><p id="reachyDiscoveryLabel">Found robots — select one, then choose Connect.</p><div id="reachyDiscoveryChoices" role="group" aria-labelledby="reachyDiscoveryLabel"></div></div>
+        <form id="reachySetupForm">
+          <label for="reachyAddress">Reachy Mini IP address or hostname</label>
+          <div class="reachy-address-row"><input id="reachyAddress" type="text" placeholder="reachy-mini.local" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="253" aria-describedby="reachySetupFallback"><button id="reachyConnectButton" class="primary" type="submit">Connect</button></div>
+        </form>
+        <p id="reachySetupFallback" class="hint">If discovery is blocked or finds nothing, open the Reachy Mini dashboard or your router’s connected-device list, then enter the robot’s IP address or hostname here. Keep the Orin and robot on the same local network. You can also skip Reachy and return to this panel later.</p>
+        <div class="controls"><button id="reachySkipButton" type="button">Skip Reachy for now</button></div>
+        <p id="reachySetupMedia" class="hint">Configuring a robot prepares its camera bridge but does not display video, play speech or move its motors. Choose Use Reachy Mini for video, Listen for audio, or a Speak button for Piper speech through the robot’s speaker.</p>
+      </div>
+    </details>
     <fieldset class="caption-toolbar">
       <legend>Caption position</legend>
       <div class="caption-options">

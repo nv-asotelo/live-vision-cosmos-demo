@@ -36,9 +36,9 @@ the redirect hop.
 | `reachy/reachy_mjpeg_bridge.py` | WebRTC-to-HTTP bridge for the robot's camera/mic (needed only for "switch to Reachy Mini" as a *video* source - motor/app/TTS control works without it). |
 | `shim/cosmos3_shim_v1.py` | The Cosmos3-Edge TensorRT-Edge-LLM serving shim - an OpenAI-compatible `/v1/chat/completions` endpoint in front of the built engine. |
 | `systemd/` | Unit templates for the three services (UI, shim, Reachy bridge) and two drop-ins for running a multi-GB resident model on an 8 GB board without swap thrashing. |
-| `ui/tests/`, run via `python3 -m unittest discover -s ui/tests` and `node --test ui/tests/test_engine_switch.js` | 50 tests, no device or GPU required - a fake HTTP backend and a fake DOM stand in for both. |
+| `ui/tests/`, run via `python3 -m unittest discover -s ui/tests` and `node --test ui/tests/test_engine_switch.js ui/tests/test_reachy_setup.js` | Offline tests for inference relay, engine selection and optional Reachy setup; no device or GPU required. |
 | `scripts/bootstrap.sh` | Run **from a laptop** (any OS, no GPU required; by default it does no compute itself). Copies this repo to the Orin over SSH and runs `setup-orin.sh` there. Optional `--host-quantize` (Linux host, 12 GB+ available RAM) does the LLM quantize+export step locally instead, for the SDK's primary V2/cuteDSL plugin instead of its legacy fallback - see "Host-accelerated quantization". |
-| `scripts/set-reachy-ip.sh` | Run **on the Orin** to point the demo at a (different) Reachy Mini by IP or hostname. Checks the robot answers, rewrites `reachy.env`, restarts the two Reachy-facing services (the first time on an Orin set up without a robot, it re-runs setup's Reachy stages instead, restarting inference too) - see "Switching robots later". |
+| `scripts/set-reachy-ip.sh` | Run **on the Orin** to point the demo at a (different) Reachy Mini by IP or hostname. Uses the same discovery, verified connection and skip manager as the UI; never rebuilds or restarts the model engine. See "Optional Reachy Mini". |
 | `scripts/setup-orin.sh` | Run **on the Orin** (`bootstrap.sh` does this for you; by hand, from `/opt/live-vision-cosmos-demo`: `export REACHY_MINI_IP=...` if you have a robot, then `sudo -E bash scripts/setup-orin.sh` - no Hugging Face token needed). Idempotent, one-shot: builds TensorRT-Edge-LLM, downloads the Cosmos3-Edge checkpoint, quantizes it to INT4 with the vendored RTN pre-quantization pass, exports and builds the engine, installs Piper/TLS/systemd, starts the services. |
 | `scripts/flash-jetpack-sd-mac.sh` | Optional Mac one-shot for a clean JetPack 7.2.1 SD card; helpers in `scripts/jetpack/`, agent skill in `.agents/skills/flash-jetpack-sd-mac/`. |
 | `AGENTS.md` | Setup/deployment recipe written for an AI coding agent to follow unattended, plus the "don't change these without re-deriving them" list for the pinned build constants below, and why checking generated text (not just health endpoints) matters. `CLAUDE.md` points here. |
@@ -73,14 +73,14 @@ laptop does no compute, it just drives the Orin over SSH). End point: a working
 `https://<orin-ip>:8443/` serving live camera captions from a locally-built TensorRT engine.
 
 ```bash
-export REACHY_MINI_IP=192.0.2.50        # optional - omit if you have no Reachy Mini
+# Optional: export REACHY_SETUP_SKIP=1 to skip robot connection explicitly
 ./scripts/bootstrap.sh jetson-user@orin-ip
 ```
 
 That's the whole setup - no Hugging Face token needed.
 It clones and builds TensorRT-Edge-LLM, downloads and quantizes the
 Cosmos3-Edge checkpoint, exports and builds the engine, installs Piper/TLS/systemd, and
-starts everything - entirely on the Orin, over SSH from whatever laptop you ran it from. It
+starts the model and UI, then offers optional Reachy discovery, a manual address, or skip. All compute happens on the Orin, over SSH from the laptop. It
 takes well over an hour on an Orin Nano, dominated by the on-device TensorRT-Edge-LLM native
 build; it's idempotent, so if it fails partway (a flaky download, a transient apt mirror),
 fix the reported problem and re-run it - completed stages are not repeated. Each completed
@@ -100,46 +100,40 @@ caption first. Then follow [Change Wi-Fi after the demo works](docs/network-swit
 for human and agent instructions, a guarded connection test, and restoration of
 Ethernet. The guide clearly marks hardware checks that are still pending.
 
-**Switching robots later** (a spare Reachy Mini, a new DHCP lease, or adding one to an Orin set
-up without) takes one command on the Orin, not a re-run of `bootstrap.sh`. An Orin set up by
-an earlier version of this repo, before that command existed (read the note on stage markers
-below before running it there), has no copy of it: refresh the repo there first, from the root
-of a laptop checkout of this repo:
+**Optional Reachy Mini:** the installer prepares the bridge and Piper even if you
+skip the robot. When a terminal is interactive, it offers discovered robots, a
+manual address, or **Skip**. It never selects an arbitrary robot. Noninteractive
+runs defer the choice to **Reachy Mini setup** in the UI; `REACHY_SETUP_SKIP=1` records
+an explicit skip. Camera captioning works without a robot.
+
+Open Reachy Mini setup at any time to discover, connect, change or skip a robot.
+Discovery uses only the robot's local mDNS service; if it is unavailable, find the
+address in the Reachy dashboard or router, or continue without a robot. Connecting
+checks the daemon before saving the address. These actions restart or stop only
+the camera bridge; they do not rebuild or restart the model engine. See
+[Reachy setup for humans and agents](docs/reachy-setup.md).
+
+The same actions are available on the Orin as the deployment account:
 
 ```bash
-git archive --format=tar HEAD | ssh jetson-user@orin-ip "tar -x -C /opt/live-vision-cosmos-demo"
+bash /opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh --discover
+bash /opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh <verified-robot-address>
+bash /opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh --skip
 ```
 
-The command itself, on the Orin - through `bash`, so the file's execute bit doesn't matter:
+No argument shows status. For an older installation, first refresh this committed
+project at its existing installation directory, then prepare only robot support:
 
 ```bash
-sudo bash /opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh 192.0.2.77     # or reachy-mini.local
+sudo -E bash /opt/live-vision-cosmos-demo/scripts/setup-orin.sh --reachy-only
 ```
 
-The address lives in one place: `REACHY_MINI_IP` in `/opt/live-vision-cosmos-demo/reachy.env`,
-which the UI and camera/mic bridge services read when they start. The script first checks that
-a Reachy Mini daemon answers at `http://<address>:8000/api/daemon/status` and changes nothing if
-none does (`--force` sets it anyway, for a robot that's off right now), then rewrites
-`reachy.env` and restarts the UI and camera/mic bridge - seconds, with inference running
-throughout. The exception is the first change on an Orin set up without a robot, or with units
-from an older version of this repo that wrote the address into `ExecStart`: there it writes
-`reachy.env` and re-runs `setup-orin.sh`'s Reachy stages once (`setup_reachy_env` - a pip
-install, so it needs internet - then `install_systemd_units` and `enable_services`), which also
-restarts the inference shim: about a minute while the model reloads. Every change after that
-takes the fast path. With no argument it prints the current address.
-
-That slow path works by re-running `setup-orin.sh`, so it also runs any other stage that has no
-marker in `/opt/live-vision-cosmos-demo/.setup-state/` - on an Orin set up by an older version
-of this repo, the stages added since. Compare that directory with the `stage` lines in `main()`
-of `scripts/setup-orin.sh` before running it there. `pin_clocks` is harmless to run; the ONNX
-exports are not - with the shim loaded, re-exporting the model on the device is slow and
-memory-hungry. An `export_onnx` marker (from versions that exported both towers in one stage)
-means that stage's output is already on disk, so mark the two stages that replaced it done
-first:
-
-```bash
-sudo touch /opt/live-vision-cosmos-demo/.setup-state/export_onnx_llm /opt/live-vision-cosmos-demo/.setup-state/export_onnx_visual
-```
+This installs missing robot dependencies and refreshes the UI/bridge configuration.
+It may briefly restart the UI, but does not invoke model download, quantization,
+export, engine building, clock changes or a shim restart. Do not fabricate setup
+markers to skip work. Piper is an on-demand UI child process: its first speech
+request starts the voice, which stays warm afterward. There is no Piper service
+to start manually, and no Home Assistant installation is required.
 
 **Robot-daemon recovery** is opt-in. When the robot's daemon wedges, the bridge can restart it
 over SSH instead of someone power-cycling the robot. To set that up, run this on the Orin as
@@ -454,35 +448,20 @@ mkdir tls && openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
 
 ### 6. Services config and systemd units
 
-```
-cat > services.json <<'EOF'
-{}
-EOF
-```
+Prefer the installer, or `setup-orin.sh --reachy-only` when upgrading only robot
+support. It renders the service account, prepares a writable `reachy.env`, installs
+restricted bridge-control permissions and registers the bridge in `services.json`
+without duplicating an existing entry.
 
-(`services.json` covers services this process does not itself manage besides the registered
-engines - leave it empty unless you add more.)
+The UI always keeps `--reachy-config` and the Piper paths. An empty robot config is
+supported; do not remove those flags to skip Reachy. The bridge unit is installed
+and enabled but its condition skips startup when the address is empty. The UI
+loads connection changes dynamically and Piper starts only when speech is used.
 
-Edit the `User`/`Group` placeholders in each `systemd/*.service`. The robot's address doesn't go
-in the units: put it in `reachy.env`, which the UI and bridge units read at start - and which
-`scripts/set-reachy-ip.sh` rewrites if you later switch robots. No robot? Skip the file, delete
-the `--reachy-daemon-url` and `--piper-*` lines from the UI unit, and don't install the bridge
-unit. With a robot, the UI's `--reachy-daemon-url` imports `reachy/reachy.py`, which needs
-`requests` in the system Python the UI runs on: `sudo apt install python3-requests` (apt, not
-pip - Ubuntu's system Python is externally managed). Then:
-
-```
-echo "REACHY_MINI_IP=192.0.2.50" | sudo tee /opt/live-vision-cosmos-demo/reachy.env  # your robot
-sudo cp systemd/*.service /etc/systemd/system/
-sudo cp systemd/dropins/99-live-vision-cosmos-demo-swap.conf /etc/sysctl.d/
-sudo install -d /etc/systemd/system/live-vision-cosmos-demo-shim.service.d
-sudo cp systemd/dropins/live-vision-cosmos-demo-shim.service.d-10-no-swap.conf \
-  /etc/systemd/system/live-vision-cosmos-demo-shim.service.d/10-no-swap.conf
-sudo sysctl --system
-sudo systemctl daemon-reload
-sudo systemctl enable --now live-vision-cosmos-demo-shim live-vision-cosmos-demo-ui
-sudo systemctl enable --now reachy-mjpeg-bridge   # only if you set up the bridge
-```
+`services.json` describes additional processes for the resource panel. A stopped
+bridge after **Skip** is expected; Reachy Mini setup distinguishes prepared from
+connected. The UI account may restart or stop only the fixed bridge service for
+robot configuration. It receives no package-install or arbitrary service rights.
 
 Engine switching (`/api/engines/*`) starts and stops the shim via `sudo -n systemctl {start,stop}
 live-vision-cosmos-demo-shim.service` (its `service` value in `engines.json`, which the rule

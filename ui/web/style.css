@@ -124,3 +124,23 @@
 .switch-progress-fill{height:100%;width:0%;background:var(--green);border-radius:3px;transition:width .3s linear}
 .model-policy{padding:12px 15px;background:#243322;border-left:3px solid var(--green);border-radius:5px;font-size:12px;line-height:1.65;color:#d5e5cb;margin:0 0 18px}
 .settings :is(input,textarea,select):disabled{opacity:.65;cursor:not-allowed}
+
+.reachy-setup{grid-column:1/-1;border:1px solid var(--line);border-radius:12px;background:#19221c;min-width:0}
+.reachy-setup>summary{cursor:pointer;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:600}
+.reachy-setup>summary small{font-weight:400;color:var(--muted);margin-left:9px}
+#reachySetupSummary{font-size:11px;color:var(--muted);font-weight:400;text-align:right;overflow-wrap:anywhere}
+.reachy-setup[open]>summary{border-bottom:1px solid var(--line)}
+.reachy-setup-body{padding:0 20px 18px}.reachy-setup-body .hint{margin:14px 0;font-size:11px}
+.reachy-setup-body .controls{padding:0;gap:10px}.reachy-setup-status{font-size:13px;line-height:1.65;color:#d5e5cb;overflow-wrap:anywhere}
+.reachy-setup-status[data-error="true"]{color:#ffd2b8}
+#reachySetupForm{margin-top:18px}#reachySetupForm>label{display:block;font-size:12px;color:#c4d3c6;margin-bottom:9px}
+.reachy-address-row{display:flex;gap:10px;max-width:650px}.reachy-address-row input{min-width:0;flex:1;font:inherit;font-size:13px;background:#121b15;color:#e8eee9;border:1px solid #3c5041;border-radius:6px;padding:11px}
+.reachy-discovered{margin-top:16px}.reachy-discovered>p{font-size:12px;color:#c4d3c6}.reachy-discovered>div{display:flex;flex-wrap:wrap;gap:10px}
+.reachy-discovered button{max-width:100%;text-align:left;overflow-wrap:anywhere}.reachy-discovered button[aria-pressed="true"]{border-color:var(--green);background:#243322;color:var(--green)}
+.reachy-setup summary:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+@media(max-width:600px){.reachy-setup>summary{align-items:flex-start}.reachy-address-row{flex-wrap:wrap}.reachy-address-row input{flex-basis:100%}.reachy-address-row button{width:100%}}
+/* Optional-service guidance can be longer than a running/stopped label. */
+.status-bar .service-row{min-width:0;max-width:100%;flex-wrap:wrap}
+.status-bar .service-name{min-width:0;overflow-wrap:anywhere}
+.status-bar .service-detail{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:600px){.status-bar .service-row{width:100%;gap:4px}.status-bar .service-detail{width:100%;text-align:left;padding-left:14px;font-size:11px}}

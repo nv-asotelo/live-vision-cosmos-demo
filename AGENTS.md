@@ -87,39 +87,36 @@ export REACHY_MINI_IP=192.0.2.50   # optional - omit if there's no robot
 to it (`bootstrap.sh` opens a new SSH connection for each step, so a password login is asked for
 at every one); otherwise the user has to be there to type the passwords.
 
-The robot's address is kept in `/opt/live-vision-cosmos-demo/reachy.env`. If the user later
-needs a different robot (a spare, a new DHCP lease, or adding one where there was none), run
-`sudo bash /opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh <address>` on the Orin - don't
-re-run setup or hand-edit systemd units. With no argument it prints the current address. It
-refuses an address where no Reachy Mini daemon answers unless given `--force`; if it refuses,
-check the address with the user rather than forcing it. Normally it then just rewrites
-`reachy.env` and restarts the UI and camera/mic bridge services - seconds, with inference
-running throughout. If robot-daemon recovery was turned on (the drop-in
-`/etc/systemd/system/reachy-mjpeg-bridge.service.d/10-recover.conf` exists), run
-`bash /opt/live-vision-cosmos-demo/reachy/setup_robot_recovery.sh` again afterwards, on the Orin
-as the bridge's service account (not root; it asks for the robot's `pollen` password): its key
-is installed per robot, and recovery follows `REACHY_MINI_IP` to the new one. With no arguments
-the script targets the robot in `reachy.env` - now the new one.
+Reachy Mini is optional. Read [Reachy setup](docs/reachy-setup.md). The installer
+always prepares bridge dependencies and Piper so the user can add a robot later
+from the UI's **Reachy Mini setup**. Interactive setup offers bounded mDNS discovery,
+a manual address, or skip. Noninteractive setup defers to the UI; use
+`REACHY_SETUP_SKIP=1` only when the user explicitly wants to skip. Never select an
+arbitrary robot or sweep a subnet. If discovery finds no usable robot, ask the user
+to locate it in the Reachy dashboard/router, supply a verified address, or skip.
 
-On an Orin set up without a robot, or by an older version of this repo that wrote the address
-into the systemd units, `set-reachy-ip.sh` instead re-runs `setup-orin.sh`'s Reachy stages once
-(`setup_reachy_env` - a pip install, so the Orin needs internet - then `install_systemd_units`
-and `enable_services`), which restarts the inference shim too: about a minute while the model
-reloads. If the Orin has no `/opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh` at all (it
-was set up before the script existed), refresh the repo there first, from the root of this
-repo's checkout on the laptop:
+The shared settings manager verifies the daemon and changes only robot configuration
+and the fixed bridge service. It does not rebuild or restart the model engine.
+The CLI equivalents, run as the deployment account on the intended Orin, are:
 
 ```bash
-git archive --format=tar HEAD | ssh jetson-user@orin-ip "tar -x -C /opt/live-vision-cosmos-demo"
+bash /opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh --discover
+bash /opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh <verified-robot-address>
+bash /opt/live-vision-cosmos-demo/scripts/set-reachy-ip.sh --skip
 ```
 
-`setup-orin.sh` runs every stage it has no marker for, so on an Orin set up by an earlier
-version of this repo that slow path can do more than the Reachy stages: stages added since then
-run too - `pin_clocks` (power mode and clock pinning), or both ONNX exports (`export_onnx_llm`
-and `export_onnx_visual`, which replaced a single `export_onnx` stage), an on-device re-export
-of the model with the shim still loaded, before the Reachy stages run.
-So check first: if any stage in `main()` of `scripts/setup-orin.sh` has no marker in
-`/opt/live-vision-cosmos-demo/.setup-state/`, tell the user before running `set-reachy-ip.sh`.
+No argument reports status. If an older installation lacks the manager, dependencies
+or dynamic UI configuration, refresh this project in its existing directory and
+run `sudo -E bash /opt/live-vision-cosmos-demo/scripts/setup-orin.sh --reachy-only`.
+This path may install robot dependencies and restart the UI, but never enters
+model download, quantization, export, engine building or shim control. Do not run
+the full installer or fabricate engine markers merely to add a robot.
+
+Piper is installed even when Reachy is skipped. It is a persistent UI child started
+by the first speech request, not a separate systemd service. A skipped bridge is
+prepared but stopped. Home Assistant is not a runtime dependency. Robot-daemon SSH
+recovery remains separately opt-in; see README before enabling it. Configuration
+and discovery must not move the robot or start an onboard application.
 
 `bootstrap.sh` copies this repo to `/opt/live-vision-cosmos-demo` on the Orin over SSH - a
 `git archive` of `HEAD`, so commit any local edits you want deployed (outside a git checkout
@@ -134,9 +131,10 @@ Orin**, in order:
 3. Download the Cosmos3-Edge checkpoint from Hugging Face (no token needed).
 4. Quantize the checkpoint to INT4 with the vendored RTN pre-quantization pass, export to
    ONNX, then build the final TensorRT engine.
-5. Install Piper (TTS), the Reachy Mini bridge (if `REACHY_MINI_IP` is set), a self-signed
-   TLS cert, and the systemd services - UI, shim and (with a robot) bridge - then start them.
-6. Poll the shim's health endpoint until it reports ready and print the final URL.
+5. Prepare TLS and systemd services; start the model/UI, poll readiness and print the URL.
+6. Prepare optional Piper (TTS) and Reachy bridge dependencies, then offer robot setup.
+   The bridge stays off until a verified robot is selected. If optional preparation
+   fails, keep inference available and retry with `setup-orin.sh --reachy-only`.
 
 It is **idempotent** - every stage records a marker under
 `/opt/live-vision-cosmos-demo/.setup-state/`. If it fails partway (a flaky download, a
@@ -310,11 +308,11 @@ silently produces a broken checkpoint rather than an error.
 
 ```bash
 python3 -m unittest discover -s ui/tests
-node --test ui/tests/test_engine_switch.js
+node --test ui/tests/test_engine_switch.js ui/tests/test_reachy_setup.js
 ```
 
-50 tests, no device, network, GPU, or model required - fake HTTP backend and fake DOM stand
-in for both. Run these after editing anything under `ui/`.
+No device, external network, GPU, or model is required: fake HTTP backends, robot
+responses and DOM elements exercise the flows. Run these after editing `ui/`.
 
 For migration and SD-helper changes, run the corresponding offline checks:
 

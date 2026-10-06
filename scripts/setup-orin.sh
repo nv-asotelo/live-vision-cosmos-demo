@@ -14,9 +14,9 @@
 # set anyway - in the environment or, as scripts/bootstrap.sh passes it, in a file named by
 # HF_TOKEN_FILE, which keeps it off command lines - the download uses it.
 #
-# Optional: REACHY_MINI_IP (skip Reachy Mini bridge/motor setup entirely if unset). It is kept
-# in $INSTALL_DIR/reachy.env, so later re-runs don't need it again; change robots afterwards
-# with scripts/set-reachy-ip.sh, which takes seconds and rebuilds nothing.
+# Optional: REACHY_MINI_IP selects a verified robot; REACHY_SETUP_SKIP=1 explicitly
+# skips robot connection. Dependencies are prepared either way so Settings can add
+# one later. --reachy-only upgrades robot support without touching model engines.
 set -euo pipefail
 
 # ---------------------------------------------------------------------------------------
@@ -33,6 +33,8 @@ PIPER_VERSION="1.2.0"
 PIPER_VOICE="${PIPER_VOICE:-en_US-ljspeech-medium}"   # see NOTICE.md before changing voices
 SERVICE_USER="${SERVICE_USER:-${SUDO_USER:-$(id -un)}}"
 REACHY_MINI_IP="${REACHY_MINI_IP:-}"
+REACHY_SETUP_SKIP="${REACHY_SETUP_SKIP:-0}"
+REACHY_PREPARED_THIS_RUN=0
 HF_TOKEN="${HF_TOKEN:-}"
 # bootstrap.sh hands the token over in a 0600 file rather than on a command line, where `ps` on
 # either machine and sudo's own log would show it. Read it and delete the file straight away.
@@ -67,6 +69,7 @@ stage_revision() {
   # export or serialized engine with the v0.11.0 source and Jinja contract.
   # Copy the matching demo sources too, including when invoked from another checkout.
   case "$1" in
+    reachy_prepare) printf 'reachy-prepare-v1\n' ;;
     export_onnx_visual|build_visual_layout)
       printf '%s:%s\n' "$EDGELLM_COMMIT" "$COSMOS_VISUAL_LAYOUT_SHA256" ;;
     fetch_repo_self|fetch_edgellm|edgellm_venv|build_edgellm_runtime|quantize|export_onnx_llm|validate_chat_template|build_engine|link_engine|enable_services|smoke_test)
@@ -871,12 +874,176 @@ PY
 }
 
 do_setup_reachy_env() {
-  if [[ -z "$REACHY_MINI_IP" ]]; then
-    log "REACHY_MINI_IP not set - skipping Reachy Mini bridge venv. Motor/app/TTS control needs no venv (talks to the robot's REST API directly); only 'switch to Reachy Mini' as a video source needs this."
-    return 0
-  fi
   [[ -d "$INSTALL_DIR/reachy_env" ]] || sudo -u "$SERVICE_USER" python3 -m venv "$INSTALL_DIR/reachy_env"
   sudo -u "$SERVICE_USER" "$INSTALL_DIR/reachy_env/bin/pip" install -r "$INSTALL_DIR/reachy/requirements.txt"
+}
+
+do_install_reachy_units() {
+  # Mutable robot settings belong to the service account, never to a web root helper.
+  if [[ ! -e "$REACHY_ENV_FILE" ]]; then
+    install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0644 /dev/null "$REACHY_ENV_FILE"
+  fi
+  [[ -f "$REACHY_ENV_FILE" && ! -L "$REACHY_ENV_FILE" ]] || die "reachy.env must be a regular file."
+  chown "$SERVICE_USER:$SERVICE_USER" "$REACHY_ENV_FILE"
+  chmod 0644 "$REACHY_ENV_FILE"
+  for unit in live-vision-cosmos-demo-ui.service reachy-mjpeg-bridge.service; do
+    sed -e "s/YOUR_USERNAME/$SERVICE_USER/g" -e "s/en_US-ljspeech-medium\.onnx/$PIPER_VOICE.onnx/g" \
+      "$INSTALL_DIR/systemd/$unit" > "/etc/systemd/system/$unit"
+  done
+  systemctl daemon-reload
+  # A configured robot reconnects after reboot; blank config fails ExecCondition
+  # cleanly. Enabling the unit does not start it or select a robot.
+  systemctl enable reachy-mjpeg-bridge.service
+}
+
+do_install_reachy_sudoers() {
+  local rule="$SERVICE_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart reachy-mjpeg-bridge.service, /usr/bin/systemctl stop reachy-mjpeg-bridge.service"
+  printf '%s\n' "$rule" > /etc/sudoers.d/live-vision-reachy
+  chmod 0440 /etc/sudoers.d/live-vision-reachy
+  visudo -cf /etc/sudoers.d/live-vision-reachy || die "Reachy sudoers rule failed validation."
+}
+
+do_prepare_reachy() {
+  apt-get update -o Acquire::Retries=3
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    avahi-utils avahi-daemon python3-requests python3-venv
+  do_setup_reachy_env
+  do_install_reachy_units
+  do_install_reachy_sudoers
+  do_register_reachy_service
+  REACHY_PREPARED_THIS_RUN=1
+}
+
+do_register_reachy_service() {
+  [[ ! -L "$INSTALL_DIR/services.json" ]] || die "services.json must not be a symlink."
+  sudo -u "$SERVICE_USER" python3 - "$INSTALL_DIR/services.json" "$INSTALL_DIR/reachy" <<'PY'
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+path, bridge = map(Path, sys.argv[1:])
+services = json.loads(path.read_text()) if path.exists() else {}
+if not isinstance(services, dict):
+    raise SystemExit("services.json must contain an object; existing file left unchanged")
+if any(isinstance(spec, dict) and "reachy_mjpeg_bridge.py" in str(spec.get("cmdline_match", ""))
+       for spec in services.values()):
+    raise SystemExit(0)
+name = "Reachy Mini bridge"
+while name in services:
+    name += " (camera)"
+services[name] = {"cmdline_match": "reachy_mjpeg_bridge.py", "path": str(bridge)}
+fd, temporary = tempfile.mkstemp(prefix=".services-", dir=path.parent)
+try:
+    with os.fdopen(fd, "w") as handle:
+        json.dump(services, handle, indent=2)
+        handle.write("\n")
+    os.chmod(temporary, 0o644)
+    os.replace(temporary, path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
+
+reachy_manager() {
+  # runuser preserves the caller's optional private REACHY_EXCLUDED_ADDRESSES;
+  # do not put exclusion values in argv or source-controlled configuration.
+  runuser -u "$SERVICE_USER" -- /usr/bin/python3 "$INSTALL_DIR/ui/scripts/reachy_setup.py" \
+    --config "$REACHY_ENV_FILE" "$@"
+}
+
+do_optional_reachy_setup() {
+  [[ "$REACHY_SETUP_SKIP" == 0 || "$REACHY_SETUP_SKIP" == 1 ]] \
+    || die "REACHY_SETUP_SKIP must be 0 or 1."
+  if [[ "$REACHY_SETUP_SKIP" == 1 ]]; then
+    reachy_manager skip
+    return
+  fi
+  if [[ -n "$REACHY_MINI_IP" ]]; then
+    reachy_manager connect "$REACHY_MINI_IP" \
+      || warn "The robot could not be connected. The demo stays available; open Reachy Mini setup to retry or skip."
+    return
+  fi
+  local state
+  state="$(reachy_manager status --json)" || { warn "Reachy Mini setup are unavailable; use the UI to retry."; return; }
+  if printf '%s' "$state" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("status") == "error" else 1)'; then
+    warn "Reachy configuration needs repair; inspect Reachy Mini setup before changing it. Existing files were preserved."
+    return
+  fi
+  if printf '%s' "$state" | python3 -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("skipped") or s.get("configured") else 1)'; then
+    log "Reachy choice already saved; change it in the UI's Reachy Mini setup."
+    return
+  fi
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    log "Reachy connection deferred: use Reachy Mini setup in the UI to discover a robot, enter its address, or skip. No robot was selected."
+    return
+  fi
+  local discovery choice address
+  discovery="$(reachy_manager discover --json)" || discovery='{"devices":[],"status":"unavailable"}'
+  printf '%s' "$discovery" | python3 -c '
+import json,sys
+data=json.load(sys.stdin)
+for number, item in enumerate(data.get("devices",[]),1):
+    print("  {}. {!r} — {!r}".format(number, item.get("name", "Reachy"), item.get("address", "")))
+if not data.get("devices"):
+    print("No verified Reachy found by local discovery. Find its address in the Reachy dashboard or router, or skip.")'
+  printf 'Reachy: enter a listed number, m for a manual address, or s to skip [s]: '
+  IFS= read -r choice || choice=s
+  case "$choice" in
+    ''|s|S) reachy_manager skip; return ;;
+    m|M) printf 'Verified robot address or hostname: '; IFS= read -r address || address='' ;;
+    *) address="$(printf '%s' "$discovery" | python3 -c '
+import json,sys
+data=json.load(sys.stdin)
+try:
+    number=int(sys.argv[1])
+    assert number > 0
+    print(data["devices"][number-1]["address"])
+except (ValueError,KeyError,IndexError,AssertionError):
+    sys.exit(1)' "$choice")" || { warn "No robot selected. Use Reachy Mini setup to choose later."; return; } ;;
+  esac
+  [[ -n "$address" ]] || { warn "No robot selected. Use Reachy Mini setup to choose later."; return; }
+  reachy_manager connect "$address" \
+    || warn "The robot did not validate. Use Reachy Mini setup to retry or skip; no model rebuild is needed."
+}
+
+reachy_only_preflight() {
+  [[ "$EUID" -eq 0 && "$(uname -s)" == Linux && "$(uname -m)" == aarch64 ]] \
+    || die "Run --reachy-only on the intended Orin with sudo."
+  [[ "$SERVICE_USER" != root ]] && id -u "$SERVICE_USER" >/dev/null 2>&1 \
+    || die "Set SERVICE_USER to the existing non-root deployment owner."
+  [[ -f /etc/systemd/system/live-vision-cosmos-demo-ui.service \
+      && -f "$INSTALL_DIR/ui/scripts/reachy_setup.py" ]] \
+    || die "Refresh this project at $INSTALL_DIR first; --reachy-only upgrades an installed demo."
+  [[ "$PIPER_VOICE" =~ ^[A-Za-z0-9_]+-[A-Za-z0-9_]+-[A-Za-z0-9_]+$ ]] || die "Invalid PIPER_VOICE."
+}
+
+reachy_only_main() {
+  reachy_only_preflight
+  log "Preparing optional Reachy support; model engine and shim remain untouched."
+  do_setup_piper
+  stage reachy_prepare do_prepare_reachy
+  if [[ "$REACHY_PREPARED_THIS_RUN" -eq 0 ]]; then
+    do_install_reachy_units
+    do_install_reachy_sudoers
+    do_register_reachy_service
+  fi
+  systemctl restart live-vision-cosmos-demo-ui.service
+  do_optional_reachy_setup
+  log "Reachy preparation complete. Reopen the UI's Reachy Mini setup."
+}
+
+run_optional_reachy_preparation() {
+  # A separate strict shell keeps optional failure handling from suppressing errexit
+  # inside package installation or recording an incomplete preparation stage.
+  if SERVICE_USER="$SERVICE_USER" REACHY_MINI_IP="$REACHY_MINI_IP" \
+      REACHY_SETUP_SKIP="$REACHY_SETUP_SKIP" \
+      bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup-orin.sh" --reachy-only; then
+    return 0
+  fi
+  warn "Model and UI setup completed, but optional Reachy preparation failed. Inference remains available. Fix the error and rerun setup-orin.sh --reachy-only; Reachy Mini setup shows preparation status."
 }
 
 do_setup_tls() {
@@ -888,32 +1055,15 @@ do_setup_tls() {
 do_install_systemd_units() {
   # The UI unit names the default voice's model file; point it at the voice actually installed
   # (PIPER_VOICE, validated in do_preflight), or speech breaks for any other voice.
-  for unit in live-vision-cosmos-demo-shim.service live-vision-cosmos-demo-ui.service; do
+  for unit in live-vision-cosmos-demo-shim.service; do
     sed -e "s/YOUR_USERNAME/$SERVICE_USER/g" -e "s/en_US-ljspeech-medium\.onnx/$PIPER_VOICE.onnx/g" \
       "$INSTALL_DIR/systemd/$unit" > "/etc/systemd/system/$unit"
   done
-  # The robot's address lives in reachy.env, which the UI and bridge units both read at start
-  # (EnvironmentFile), not in the units themselves - so scripts/set-reachy-ip.sh can point
-  # this Orin at a different robot later by rewriting one line and restarting two services.
-  # No robot on this LAN is a supported mode too: then drop the UI's robot flags instead.
-  if [[ -n "$REACHY_MINI_IP" ]]; then
-    reachy_address_write "$REACHY_MINI_IP"
-  else
-    sed -i '/--reachy-daemon-url/d' "/etc/systemd/system/live-vision-cosmos-demo-ui.service"
-    # serve_ui.py itself refuses to start with --piper-bin but no --reachy-daemon-url
-    # ("speech plays through the robot") - drop both together or the UI service crash-loops
-    # on every boot. Piper is still installed either way; it's just unreachable without a
-    # robot to play audio through, so there's nothing useful --piper-bin would do here.
-    sed -i '/--piper-bin/d' "/etc/systemd/system/live-vision-cosmos-demo-ui.service"
-  fi
+  do_install_reachy_units
   cp "$INSTALL_DIR/systemd/dropins/99-live-vision-cosmos-demo-swap.conf" /etc/sysctl.d/
   install -d "/etc/systemd/system/live-vision-cosmos-demo-shim.service.d"
   cp "$INSTALL_DIR/systemd/dropins/live-vision-cosmos-demo-shim.service.d-10-no-swap.conf" \
     "/etc/systemd/system/live-vision-cosmos-demo-shim.service.d/10-no-swap.conf"
-  if [[ -n "$REACHY_MINI_IP" ]]; then
-    sed -e "s/YOUR_USERNAME/$SERVICE_USER/g" \
-      "$INSTALL_DIR/systemd/reachy-mjpeg-bridge.service" > /etc/systemd/system/reachy-mjpeg-bridge.service
-  fi
   sysctl --system >/dev/null
   systemctl daemon-reload
 }
@@ -934,10 +1084,7 @@ do_enable_services() {
   # whether this is a fresh start or a resume.
   systemctl enable live-vision-cosmos-demo-shim live-vision-cosmos-demo-ui
   systemctl restart live-vision-cosmos-demo-shim live-vision-cosmos-demo-ui
-  if [[ -n "$REACHY_MINI_IP" ]]; then
-    systemctl enable reachy-mjpeg-bridge
-    systemctl restart reachy-mjpeg-bridge
-  fi
+  systemctl enable reachy-mjpeg-bridge.service
 }
 
 do_smoke_test() {
@@ -973,18 +1120,21 @@ main() {
   stage build_engine            do_build_engine
   stage build_visual_layout     do_build_visual_layout
   stage link_engine             do_link_engine
-  stage setup_piper             do_setup_piper
-  stage setup_reachy_env        do_setup_reachy_env
   stage setup_tls               do_setup_tls
   stage install_systemd_units   do_install_systemd_units
   stage setup_sudoers           do_setup_sudoers
   stage enable_services         do_enable_services
   resume_inference
   stage smoke_test              do_smoke_test
+  run_optional_reachy_preparation
 }
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   trap 'setup_exit_cleanup "$?"' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  main "$@"
+  case "${1:-}" in
+    --reachy-only) [[ "$#" -eq 1 ]] || die "--reachy-only takes no other arguments."; reachy_only_main ;;
+    '') main ;;
+    *) die "Usage: sudo -E bash scripts/setup-orin.sh [--reachy-only]" ;;
+  esac
 fi

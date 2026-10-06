@@ -8,3 +8,6 @@ node_modules/
 /results/
 # Per-device config written on the Orin (scripts/set-reachy-ip.sh), never committed.
 /reachy.env
+/reachy-setup.json
+/reachy-setup.lock
+/.reachy-*

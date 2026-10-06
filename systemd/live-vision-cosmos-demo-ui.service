@@ -1,7 +1,6 @@
 [Unit]
 Description=Live Vision - Cosmos3-Edge + Reachy Mini demo UI
 After=network.target live-vision-cosmos-demo-shim.service
-Wants=live-vision-cosmos-demo-shim.service
 
 [Service]
 Type=simple
@@ -9,21 +8,17 @@ Type=simple
 User=YOUR_USERNAME
 Group=YOUR_USERNAME
 WorkingDirectory=/opt/live-vision-cosmos-demo
-# --reachy-daemon-url: Reachy Mini's own control API (motors/apps/TTS). The address is
-#   REACHY_MINI_IP in reachy.env (see reachy-mjpeg-bridge.service) - change it with
-#   scripts/set-reachy-ip.sh. No robot? Delete this flag and the --piper-* line below (speech
-#   plays through the robot); those UI panels just don't appear.
+# --reachy-config is read dynamically: Settings can discover/connect/skip a robot
+# without restarting the UI or the model engine. No address is a supported state.
 # --piper-bin/--piper-model: see README "3. Set up text-to-speech" for where to get both.
 # --cert/--key: a self-signed pair is fine - see README "5. TLS certificate" for one openssl command.
 #   Browsers refuse camera access (getUserMedia) on plain HTTP from anything but localhost, so
 #   this is required for the webcam path to work from any device but the Orin's own browser.
-# Optional ("-"): an Orin without a robot has no reachy.env, and no robot flags to expand.
-EnvironmentFile=-/opt/live-vision-cosmos-demo/reachy.env
 ExecStart=/usr/bin/python3 /opt/live-vision-cosmos-demo/ui/scripts/serve_ui.py \
   --host 0.0.0.0 --port 8091 --https-port 8443 \
   --cert /opt/live-vision-cosmos-demo/tls/cert.pem --key /opt/live-vision-cosmos-demo/tls/key.pem \
   --allow-insecure-lan --backend-port 8001 \
-  --reachy-daemon-url http://${REACHY_MINI_IP}:8000 \
+  --reachy-config /opt/live-vision-cosmos-demo/reachy.env \
   --piper-bin /opt/live-vision-cosmos-demo/piper/piper --piper-model /opt/live-vision-cosmos-demo/piper/en_US-ljspeech-medium.onnx \
   --engine-link /opt/live-vision-cosmos-demo/engine-link --default-engine cosmos \
   --engines-config /opt/live-vision-cosmos-demo/engines.json \

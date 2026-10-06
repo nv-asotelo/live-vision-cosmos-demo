@@ -130,6 +130,158 @@ function describeReachyHealth(health) {
   return {live: false, text: why ? `${stateName} · ${why}` : stateName};
 }
 
+// Optional robot setup is independent of the model and of the current video source.
+// Discovery offers choices only: attaching a robot always requires Connect.
+function validateReachyAddress(value) {
+  const address = String(value || "").trim().toLowerCase();
+  const labels = address.replace(/\.$/, "").split(".");
+  if (!address || address.length > 253 || labels.some(label =>
+    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) ||
+    (/^[\d.]+$/.test(address) && (labels.length !== 4 || labels.some(label =>
+      !/^(0|[1-9]\d{0,2})$/.test(label) || Number(label) > 255)))) {
+    throw new Error("Enter only the robot’s IPv4 address or hostname, without http://, a port or a path.");
+  }
+  return address;
+}
+
+async function requestReachySetup(path, body, {fetcher, loadAccess, unauthorized}) {
+  const options = {credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(body === undefined ? 5000 : 45000)};
+  if (body !== undefined) {
+    const credentials = await loadAccess();
+    options.method = "POST";
+    options.headers = {"Content-Type": "application/json", "X-Reachy-Token": credentials.reachy_token};
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetcher(path, options);
+  const data = await response.json().catch(() => null);
+  if (response.status === 401) unauthorized();
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error?.message || data?.message || `Reachy setup returned HTTP ${response.status}.`);
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Reachy setup returned an unreadable response.");
+  return data;
+}
+
+class ReachySetupController {
+  constructor({request, changed, beforeChange, afterChange}) {
+    Object.assign(this, {request, changed, beforeChange, afterChange});
+    this.snapshot = null; this.fresh = false; this.pending = ""; this.message = "";
+    this.failed = false; this.devices = []; this.autoDiscovered = false; this.version = 0;
+    this.refreshing = false;
+  }
+  get busy() { return Boolean(this.pending || this.snapshot?.busy); }
+  get configured() { return this.fresh && this.snapshot?.status !== "error" && this.snapshot?.configured === true; }
+  get usable() { return this.fresh && this.snapshot?.status !== "error" && this.snapshot?.available === true; }
+  async refresh(autoDiscover = false) {
+    if (this.refreshing || this.pending) return;
+    const version = this.version; this.refreshing = true;
+    try {
+      const data = await this.request("/api/reachy/setup");
+      if (version !== this.version) return;
+      if (typeof data.configured !== "boolean" || typeof data.skipped !== "boolean" || typeof data.available !== "boolean") {
+        throw new Error("Reachy setup status is incomplete. Refresh status to retry.");
+      }
+      if (!this.fresh || this.snapshot?.status === "error") { this.message = ""; this.failed = false; }
+      if (data.status !== "error" && data.configured && (typeof data.address !== "string" || !validateReachyAddress(data.address))) {
+        throw new Error("The configured robot address is unavailable. Refresh status to retry.");
+      }
+      this.snapshot = data; this.fresh = true;
+      if (data.status === "error") {
+        this.failed = true;
+        this.message = data.message || "Saved Reachy configuration needs repair. Follow the installation recovery guide, then refresh status.";
+      }
+    } catch (err) {
+      if (version !== this.version) return;
+      this.fresh = false; this.failed = true; this.message = err.message;
+    } finally {
+      this.refreshing = false;
+      if (version === this.version) this.changed();
+    }
+    if (autoDiscover && this.usable && !this.configured && !this.snapshot.skipped && !this.busy && !this.autoDiscovered) {
+      this.autoDiscovered = true;
+      await this.discover();
+    }
+  }
+  async discover() {
+    if (!this.usable || this.busy) return;
+    this.autoDiscovered = true; this.version += 1; this.pending = "discover";
+    this.failed = false; this.message = "Looking for Reachy Mini advertisements on the local network…"; this.changed();
+    try {
+      const data = await this.request("/api/reachy/setup/discover", {});
+      if (!Array.isArray(data.devices)) throw new Error("Discovery did not return a robot list. Use the manual address field or skip for now.");
+      this.devices = data.devices.filter(item => {
+        try { return item && typeof item.address === "string" && Boolean(validateReachyAddress(item.address)); } catch (_) { return false; }
+      }).slice(0, 32);
+      this.message = data.message || (this.devices.length
+        ? `Found ${this.devices.length} robot${this.devices.length === 1 ? "" : "s"}. Select one, then choose Connect.`
+        : "No Reachy Mini found. Use its dashboard or your router’s device list to find its address, enter it below, or skip for now.");
+    } catch (err) {
+      this.devices = []; this.failed = true;
+      this.message = `${err.message} You can enter the robot’s address below or skip Reachy for now.`;
+    } finally { this.pending = ""; this.changed(); }
+  }
+  async change(action, address) {
+    if (!this.usable || this.busy || !["configure", "skip"].includes(action)) return;
+    let body = {};
+    try { if (action === "configure") body = {address: validateReachyAddress(address)}; }
+    catch (err) { this.failed = true; this.message = err.message; this.changed(); return; }
+    this.version += 1; this.pending = action; this.failed = false;
+    this.message = action === "configure" ? "Checking the robot and saving its address…" : "Disconnecting Reachy from this demo…";
+    this.beforeChange(); this.changed();
+    let failure, result;
+    try { result = await this.request(`/api/reachy/setup/${action}`, body); }
+    catch (err) { failure = err; }
+    finally {
+      this.pending = "";
+      // Retire any older status request before accepting the new configuration.
+      this.refreshing = false; await this.refresh();
+      if (failure) { this.failed = true; this.message = failure.message; }
+      else if (this.fresh) {
+        // A successful POST is not proof that its configuration is still active:
+        // another tab or a newly detected file error can change the next snapshot.
+        // The server pins hostnames to an IP, so use its returned address when present.
+        const expected = action === "configure"
+          ? this.configured && this.snapshot.address === (result?.address || body.address)
+          : this.snapshot.skipped && !this.snapshot.configured;
+        if (this.usable && !this.busy && expected) {
+          this.failed = false; this.devices = [];
+          this.message = action === "configure"
+            ? "Robot address saved. Choose Use Reachy Mini to check its camera. Piper stays idle until you ask it to speak."
+            : "Reachy skipped. Keep using your camera or images; return here whenever you want to add a robot.";
+        } else {
+          this.failed = true;
+          this.message = this.snapshot.message || "The requested Reachy configuration is not confirmed. Check the current setup status before retrying.";
+        }
+      }
+      this.changed(); await this.afterChange();
+    }
+  }
+}
+
+// Bind controls to the robot shown by this tab, not a robot selected elsewhere
+// since its last status poll. The server rejects a stale target before acting.
+function reachyControlOptions(address, jsonBody) {
+  const options = {method: "POST", headers: {"X-Reachy-Address": address}};
+  if (jsonBody !== undefined) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(jsonBody);
+  }
+  return options;
+}
+
+function renderReachyDiscoveries(container, devices, selected, disabled, onSelect) {
+  const buttons = devices.map(device => {
+    const button = container.ownerDocument.createElement("button"); button.type = "button";
+    const name = String(device.name || device.hostname || "Reachy Mini").slice(0, 160);
+    button.textContent = `${name} · ${device.address}`;
+    button.setAttribute("aria-pressed", String(device.address === selected));
+    button.disabled = disabled;
+    button.addEventListener("click", () => { if (!button.disabled) onSelect(device.address); });
+    return button;
+  });
+  container.replaceChildren(...buttons);
+}
+
 const ADVANCED_DEFAULTS = {imageTokens: 512, imageTokenLimit: 512, topP: 1};
 
 // A backend change retires both inference and health requests. Late responses
@@ -497,7 +649,7 @@ function startDeviceTelemetry() {
   resume();
 }
 
-if (typeof module !== "undefined") module.exports = {SSEParser, readCompletionEvent, CAPTURE_PRESETS, FrameCadence, PROMPT_PRESETS, LatencySummary, appendTelemetrySample, telemetrySegments, ADVANCED_DEFAULTS, validateAdvancedSettings, readServerInferenceMs, readServerFirstTextMs, describeReachyHealth, readRelayStream, readRelaySlots, skippedSampleReason, REACHY_SAMPLE_MS, EngineRequestScope, EnginePolicySettings, enginePolicy, engineChoices, renderEngineChoices, runEngineSwitch};
+if (typeof module !== "undefined") module.exports = {reachyControlOptions, ReachySetupController, validateReachyAddress, requestReachySetup, renderReachyDiscoveries, SSEParser, readCompletionEvent, CAPTURE_PRESETS, FrameCadence, PROMPT_PRESETS, LatencySummary, appendTelemetrySample, telemetrySegments, ADVANCED_DEFAULTS, validateAdvancedSettings, readServerInferenceMs, readServerFirstTextMs, describeReachyHealth, readRelayStream, readRelaySlots, skippedSampleReason, REACHY_SAMPLE_MS, EngineRequestScope, EnginePolicySettings, enginePolicy, engineChoices, renderEngineChoices, runEngineSwitch};
 
 if (typeof document !== "undefined") {
   const $ = id => document.getElementById(id);
@@ -528,6 +680,62 @@ if (typeof document !== "undefined") {
   // names off the robot's camera and microphone. Asked for at load; a failure is asked again by
   // the next Reachy poll, and so is a 401, which is how a restarted server refuses an old token.
   let access = null, accessRequest = null;
+  let reachySetupAddress = null;
+  const reachySetup = new ReachySetupController({
+    request: (path, body) => requestReachySetup(path, body, {fetcher: fetch, loadAccess, unauthorized: () => { access = null; }}),
+    changed: renderReachySetup,
+    beforeChange: stopReachyForSetup,
+    afterChange: () => Promise.all([pollReachyControlState(), refreshServices()]),
+  });
+  function stopReachyForSetup() {
+    reachyRequested = false;
+    if (state.source === "reachy" && (state.running || reachy.poll !== null)) stop();
+    autoSpeak = false;
+    $("autoSpeakButton").setAttribute("aria-pressed", "false");
+    $("autoSpeakButton").textContent = "Auto-speak: Off";
+    $("reachyControls").hidden = true;
+  }
+  function openReachySetup() {
+    $("reachySetup").open = true;
+    $("reachySetup").scrollIntoView({block: "nearest"});
+    $("reachyAddress").focus({preventScroll: true});
+  }
+  function renderReachySetup() {
+    const saved = reachySetup.snapshot, busy = reachySetup.busy;
+    const summary = !reachySetup.fresh ? "Status unavailable" : saved.status === "error" ? "Configuration needs repair" : saved.configured
+      ? `Configured · ${saved.address}` : saved.skipped ? "Skipped · add any time" : "Not configured";
+    $("reachySetupSummary").textContent = busy ? "Setup in progress…" : summary;
+    const status = $("reachySetupStatus");
+    status.textContent = reachySetup.message || saved?.message || summary;
+    status.dataset.error = String(reachySetup.failed);
+    $("reachySetup").setAttribute("aria-busy", String(busy));
+    for (const id of ["reachyDiscoverButton", "reachyConnectButton", "reachySkipButton", "reachyAddress"]) $(id).disabled = busy || !reachySetup.usable;
+    $("reachySetupRefresh").disabled = busy || reachySetup.refreshing;
+    $("reachyDiscoverButton").textContent = reachySetup.pending === "discover" ? "Searching…" : reachySetup.autoDiscovered ? "Scan again" : "Find Reachy Mini";
+    $("reachyConnectButton").textContent = saved?.configured ? "Change robot" : "Connect";
+    $("reachySkipButton").textContent = saved?.configured ? "Disconnect and skip Reachy" : "Skip Reachy for now";
+    if (reachySetup.fresh && reachySetupAddress !== saved.address) {
+      // Another tab can reconfigure the robot too. Its new address must not inherit
+      // this tab’s running microphone, camera or auto-speak choice.
+      if (reachySetupAddress !== null) stopReachyForSetup();
+      if (document.activeElement !== $("reachyAddress")) $("reachyAddress").value = saved.address || "";
+      reachySetupAddress = saved.address;
+    }
+    $("reachyDiscovered").hidden = !reachySetup.devices.length;
+    renderReachyDiscoveries($("reachyDiscoveryChoices"), reachySetup.devices, $("reachyAddress").value, busy, address => {
+      $("reachyAddress").value = address; renderReachySetup(); $("reachyConnectButton").focus();
+    });
+    $("reachyControls").inert = busy || !reachySetup.configured;
+    if (!reachySetup.configured) $("reachyControls").hidden = true;
+    controls();
+  }
+  $("reachyDiscoverButton").addEventListener("click", () => reachySetup.discover());
+  $("reachySetupRefresh").addEventListener("click", () => reachySetup.refresh(true));
+  $("reachyAddress").addEventListener("input", () => renderReachySetup());
+  $("reachySetupForm").addEventListener("submit", event => {
+    event.preventDefault(); void reachySetup.change("configure", $("reachyAddress").value);
+  });
+  $("reachySkipButton").addEventListener("click", () => reachySetup.change("skip"));
   function loadAccess() {
     if (access) return Promise.resolve(access);
     accessRequest ??= fetch("/api/access", {cache: "no-store", signal: AbortSignal.timeout(3000)})
@@ -675,7 +883,8 @@ if (typeof document !== "undefined") {
   function error(message = "") { $("error").textContent = message; $("error").hidden = !message; }
   function controls() {
     $("startButton").disabled = state.running || state.busy || switchingEngine();
-    $("reachyButton").disabled = state.running || state.busy || switchingEngine();
+    $("reachyButton").disabled = reachySetup.busy || (reachySetup.configured && (state.busy || switchingEngine() || (state.running && state.source === "reachy")));
+    $("reachyButton").textContent = reachySetup.configured ? "Use Reachy Mini" : "Set up Reachy Mini";
     $("stopButton").disabled = !state.running && !state.busy;
     const sourceReady = state.running
       ? (state.source === "reachy" ? reachyFrameReady() : Boolean(state.media && $("video").readyState >= 2))
@@ -1143,6 +1352,7 @@ if (typeof document !== "undefined") {
     applyReachyHealth(health, failure, relay, slots, stream, askedAt);
   }
   function startReachy() {
+    if (!reachySetup.configured || reachySetup.busy) { reachyRequested = false; openReachySetup(); return; }
     // No getUserMedia: the robot's video comes from the Jetson, so this works over plain HTTP.
     error(); reachyRequested = false;
     // Same reasoning as startCamera()'s own releaseCamera() call: switching source while one is
@@ -1268,7 +1478,9 @@ if (typeof document !== "undefined") {
   // has always torn down an active Reachy session - so this needs to work while the camera is
   // already running, not only from a stopped state. That asymmetry (camera->Reachy silently did
   // nothing unless Stop was clicked first; Reachy->camera always worked) was the reported bug.
-  $("reachyButton").addEventListener("click", () => { if (!state.busy) startReachy(); });
+  $("reachyButton").addEventListener("click", () => {
+    if (!reachySetup.configured) openReachySetup(); else if (!state.busy) startReachy();
+  });
   $("listenButton").addEventListener("click", () => {
     if (!reachyActive()) return;
     error();
@@ -1376,9 +1588,8 @@ if (typeof document !== "undefined") {
     }
   }
   function reachyPost(path, jsonBody) {
-    const options = {method: "POST"};
-    if (jsonBody !== undefined) { options.headers = {"Content-Type": "application/json"}; options.body = JSON.stringify(jsonBody); }
-    return reachyControlRequest(path, options);
+    if (!reachySetup.configured || reachySetup.busy) return Promise.reject(new Error("Finish Reachy setup before controlling the robot."));
+    return reachyControlRequest(path, reachyControlOptions(reachySetup.snapshot.address, jsonBody));
   }
   // Live pose control: X/Y, Z, roll/pitch/yaw, body_yaw and antennas, all POSTed together to
   // /api/reachy/target (serve_ui.py's reachy_control forwards them straight into Reachy.set_target).
@@ -1390,6 +1601,7 @@ if (typeof document !== "undefined") {
   const D2R = Math.PI / 180;
   function tTouch() { tGrabbed = Date.now(); }
   async function tSend() {
+    if (!reachySetup.configured || reachySetup.busy) { tPend = false; return; }
     if (tBusy) { tPend = true; return; }
     const now = Date.now();
     if (now - tLast < 60) { if (!tPend) { tPend = true; setTimeout(() => { tPend = false; tSend(); }, 60 - (now - tLast)); } return; }
@@ -1575,9 +1787,16 @@ if (typeof document !== "undefined") {
     } catch (_) { /* surfaced already via error() */ }
   }
   async function pollReachyControlState() {
+    if (!reachySetup.configured || reachySetup.busy) {
+      $("reachyControls").hidden = true;
+      $("autoSpeakButton").hidden = $("autoSpeakHelp").hidden = true;
+      return;
+    }
+    const setupVersion = reachySetup.version;
     try {
       const response = await fetch("/api/reachy/state", {cache: "no-store"});
       const st = await response.json();
+      if (setupVersion !== reachySetup.version || !reachySetup.configured || reachySetup.busy) return;
       const panel = $("reachyControls");
       $("autoSpeakButton").hidden = $("autoSpeakHelp").hidden = !(st.enabled && st.speech_enabled);
       // Available whenever the robot is configured, regardless of which feed is active - these
@@ -1622,7 +1841,7 @@ if (typeof document !== "undefined") {
   // speaking the previous one is skipped rather than queued, the same reasoning as the button
   // guard - speech falls behind captioning by at most one utterance, never a growing backlog.
   async function speakText(text) {
-    if (speaking || !text) return;
+    if (speaking || !text || !reachySetup.configured || reachySetup.busy) return;
     speaking = true;
     const answerBtn = $("reachySpeakAnswer"), manualBtn = $("reachySpeakButton");
     const answerLabel = answerBtn.textContent, manualLabel = manualBtn.textContent;
@@ -1665,8 +1884,11 @@ if (typeof document !== "undefined") {
     const text = $("answer").textContent.trim();
     if (text) speakText(text);
   });
-  pollReachyControlState();
-  setInterval(pollReachyControlState, 5000);
+  reachySetup.refresh(true).then(() => {
+    if (reachySetup.fresh && !reachySetup.snapshot.configured && !reachySetup.snapshot.skipped) $("reachySetup").open = true;
+    void pollReachyControlState();
+  });
+  setInterval(() => { void reachySetup.refresh(); void pollReachyControlState(); }, 5000);
 
   // Real elapsed time against the server's own switch_progress.timeout - never a fabricated
   // percentage. started_at/timeout come from whichever switcher is active (ServiceEngineSwitcher
@@ -1746,26 +1968,33 @@ if (typeof document !== "undefined") {
     try {
       const response = await fetch("/api/services", {cache: "no-store"});
       const data = await response.json();
-      const fmtMb = mb => mb === null || mb === undefined ? "—" : mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+      const fmtMb = mb => typeof mb !== "number" || !Number.isFinite(mb) || mb < 0 ? "—" : mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
       // A switchable model's own service is stopped whenever it is not the currently selected
       // one - expected, not a fault. "active" (present only for entries backed by the engine
       // registry - see service_list() in serve_ui.py) tells the two apart: an unselected model
       // reads "not selected" rather than the alarming bare "stopped" it used to, and the one real
       // fault state - selected but its process is not actually up - gets its own visible class.
-      $("servicesList").innerHTML = (data.services || []).map(s => {
+      const rows = (data.services || []).map(s => {
         const managed = "active" in s;
         const fault = managed && s.active && !s.running;
-        const rowClass = fault ? "fault" : !managed ? (s.running ? "running" : "stopped")
+        const rowClass = fault ? "fault" : !managed ? (s.running ? "running" : s.optional ? "standby" : "stopped")
           : s.active ? "running" : "standby";
-        const label = fault ? "active · not responding"
+        const defaultLabel = fault ? "active · not responding"
           : !managed ? (s.running ? "running" : "stopped")
           : s.active ? "active · running" : (s.running ? "running (not selected)" : "not selected");
-        return `
-        <li class="service-row ${rowClass}">
-          <span class="service-name"><span class="service-dot"></span>${s.name}</span>
-          <span class="service-detail">${label} · RAM ${fmtMb(s.memory_mb)} · disk ${fmtMb(s.storage_mb)} (${s.disk})</span>
-        </li>`;
-      }).join("") || `<li class="hint">No services configured.</li>`;
+        const label = typeof s.state_detail === "string" && s.state_detail ? s.state_detail : defaultLabel;
+        const row = document.createElement("li"); row.className = `service-row ${rowClass}`;
+        const name = document.createElement("span"); name.className = "service-name";
+        const dot = document.createElement("span"); dot.className = "service-dot";
+        name.append(dot, String(s.name || "Service"));
+        const detail = document.createElement("span"); detail.className = "service-detail";
+        detail.textContent = `${label} · RAM ${fmtMb(s.memory_mb)} · disk ${fmtMb(s.storage_mb)} (${s.disk})`;
+        row.append(name, detail); return row;
+      });
+      if (!rows.length) {
+        const empty = document.createElement("li"); empty.className = "hint"; empty.textContent = "No services configured."; rows.push(empty);
+      }
+      $("servicesList").replaceChildren(...rows);
     } catch (_) { /* keep last known list on a transient poll failure */ }
   }
   refreshServices();

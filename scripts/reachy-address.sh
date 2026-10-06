@@ -1,8 +1,8 @@
 # Sourced by setup-orin.sh and set-reachy-ip.sh: where this Orin keeps its Reachy Mini's address,
 # how to read and write it, and what counts as a valid one.
 #
-# reachy.env is a systemd EnvironmentFile read by the UI and bridge units at start, so changing the
-# robot means rewriting one line and restarting two services - nothing is rebuilt.
+# reachy.env is read dynamically by the UI and at startup by the bridge unit.
+# The shared settings manager validates changes and restarts only the bridge.
 
 REACHY_ENV_FILE="${INSTALL_DIR:-/opt/live-vision-cosmos-demo}/reachy.env"
 
@@ -35,8 +35,8 @@ reachy_address_write() {
   local tmp
   tmp="$(mktemp "$REACHY_ENV_FILE.XXXXXX")"
   printf '%s\n' \
-    "# Reachy Mini LAN address, read by the UI and camera/mic bridge services when they start." \
-    "# Change it with: sudo bash ${INSTALL_DIR:-/opt/live-vision-cosmos-demo}/scripts/set-reachy-ip.sh <address>" \
+    "# Reachy Mini LAN address, read dynamically by the UI and at bridge startup." \
+    "# Change it in Reachy settings or with: bash ${INSTALL_DIR:-/opt/live-vision-cosmos-demo}/scripts/set-reachy-ip.sh <address>" \
     "REACHY_MINI_IP=$1" > "$tmp"
   chmod 0644 "$tmp"
   mv "$tmp" "$REACHY_ENV_FILE"

@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine_backends import ServiceEngineSwitcher
+from reachy_setup import ReachySetup
 
 ROOT = Path(__file__).resolve().parents[1] / "web"
 # reachy/reachy.py: the robot daemon client. Path-inserted rather than vendored so there is one
@@ -629,6 +630,26 @@ class Piper:
         detail = ("; last output:\n  " + "\n  ".join(tail)) if tail else "; no output"
         print(f"[piper] process exited (code={code}){detail}", flush=True)
 
+    def close(self):
+        """Release the optional voice worker when the robot is disconnected."""
+        with self.lock:
+            proc, self.proc = self.proc, None
+            if proc is None:
+                return
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+            for stream in (proc.stdin, proc.stderr):
+                if stream:
+                    stream.close()
+
     def synth(self, text: str, timeout: float = 8.0) -> Path | None:
         """Synthesize text to a WAV file. Thread-safe (holds self.lock for the whole call)."""
         with self.lock:
@@ -704,6 +725,45 @@ class Piper:
         return s
 
 
+class ReachyRuntime:
+    """Shared HTTP/HTTPS robot selection; changing it never touches inference."""
+
+    def __init__(self, setup, piper_factory=None, client_factory=None):
+        self.setup = setup
+        self.lock = threading.RLock()
+        self.address = None
+        self.client = None
+        self.piper = None
+        self.client_factory = client_factory or Reachy
+        self.piper_factory = piper_factory
+
+    def apply(self, address):
+        with self.lock:
+            if address == self.address:
+                return
+            if address and self.client_factory is None:
+                raise RuntimeError("Reachy control needs python3-requests. Run setup-orin.sh --reachy-only.")
+            client = self.client_factory(f"http://{address}:8000") if address else None
+            piper = self.piper_factory() if address and self.piper_factory else None
+            old_client, old_piper = self.client, self.piper
+            self.client, self.piper, self.address = client, piper, address
+            if old_piper:
+                old_piper.close()
+            if old_client and getattr(old_client, "session", None):
+                old_client.session.close()
+
+    def refresh(self):
+        # CLI changes and UI changes use the same device-local config file.
+        snapshot = self.setup.snapshot()
+        if not snapshot.get("busy"):
+            address = snapshot.get("address") or ""
+            # Optional robot dependencies must not prevent image inference.
+            self.apply(address if self.client_factory is not None else "")
+
+    def close(self):
+        self.apply("")
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 8
@@ -718,6 +778,24 @@ class Server(ThreadingHTTPServer):
         # Populated in main(): {name: {"cmdline_match": str, "path": str}} for services this
         # process does not itself manage (the shim, the Reachy bridge) - see --services-config.
         self.services_config = {}
+        self.reachy_setup = None
+        self.reachy_runtime = None
+
+    @property
+    def reachy_client(self):
+        return self.reachy_runtime.client if self.reachy_runtime else getattr(self, "_reachy_client", None)
+
+    @reachy_client.setter
+    def reachy_client(self, value):
+        self._reachy_client = value
+
+    @property
+    def piper(self):
+        return self.reachy_runtime.piper if self.reachy_runtime else getattr(self, "_piper", None)
+
+    @piper.setter
+    def piper(self, value):
+        self._piper = value
 
     def server_close(self):
         if getattr(self, "owns_telemetry", False):
@@ -734,19 +812,28 @@ class Server(ThreadingHTTPServer):
         show as permanently "down" once it stops being the selected one - see the "active" field,
         which tells the caller a stopped-and-unselected engine apart from a stopped one that
         should be running."""
+        if self.reachy_runtime:
+            self.reachy_runtime.refresh()
         out = [{"name": "Live Vision UI", "running": True,
                "memory_mb": read_proc_rss_mb(os.getpid()),
                "storage_mb": dir_size_mb(Path(__file__).resolve().parent),
                "disk": disk_for_path(Path(__file__).resolve())}]
-        if self.piper:
-            pid = self.piper.proc.pid if self.piper.proc and self.piper.proc.poll() is None else None
+        # Keep installed, lazy-start speech visible even when no robot is selected.
+        piper = self.piper or getattr(self, "_piper", None)
+        if piper:
+            pid = piper.proc.pid if piper.proc and piper.proc.poll() is None else None
             out.append({"name": "TTS (Piper)", "running": pid is not None,
+                       "optional": True,
+                       "state_detail": "" if pid else ("Idle · starts on speech" if self.reachy_client else "Idle · connect Reachy Mini"),
                        "memory_mb": read_proc_rss_mb(pid) if pid else None,
-                       "storage_mb": dir_size_mb(self.piper.model.parent),
-                       "disk": disk_for_path(self.piper.model)})
+                       "storage_mb": dir_size_mb(piper.model.parent),
+                       "disk": disk_for_path(piper.model)})
         for name, spec in self.services_config.items():
             pid = find_pid_by_cmdline(spec["cmdline_match"])
+            bridge = "reachy_mjpeg_bridge.py" in spec["cmdline_match"]
             out.append({"name": name, "running": pid is not None,
+                       "optional": bridge,
+                       "state_detail": ("Waiting for robot camera" if self.reachy_client else "Not configured") if bridge and not pid else "",
                        "memory_mb": read_proc_rss_mb(pid) if pid else None,
                        "storage_mb": dir_size_mb(spec["path"]) if spec.get("path") else None,
                        "disk": disk_for_path(spec["path"]) if spec.get("path") else "unknown"})
@@ -851,6 +938,14 @@ class Handler(BaseHTTPRequestHandler):
         # Every route also needs the relay's ?token= (RELAY_TOKEN), checked after Host and Fetch
         # Metadata so those refusals keep saying what is wrong. Queries never reach the bridge.
         route, _, query = self.path.partition("?")
+        if route == "/api/reachy/setup":
+            if self.host_refused():
+                return
+            if not self.fetch_site_allowed():
+                self.json_error(403, "Cross-site requests are disabled.")
+                return
+            self.reachy_setup_status()
+            return
         if route in REACHY_FETCHES or route in REACHY_STREAMS:
             stream = (parse_qs(query).get("stream") or [""])[0]
             stream = stream if STREAM_TOKEN.fullmatch(stream) else None
@@ -930,6 +1025,9 @@ class Handler(BaseHTTPRequestHandler):
         self.headers_in = self.headers
         if not self.origin_allowed():
             self.json_error(403, "Cross-origin requests are disabled.")
+            return
+        if self.path.startswith("/api/reachy/setup/"):
+            self.reachy_setup_action(self.path[len("/api/reachy/setup/"):])
             return
         if self.path.startswith("/api/reachy/"):
             self.reachy_control(self.path[len("/api/reachy/"):])
@@ -1252,13 +1350,91 @@ class Handler(BaseHTTPRequestHandler):
         self.send_headers(200 if ok else 400, "application/json", len(body))
         self.wfile.write(body)
 
+    def reachy_setup_status(self):
+        setup = self.server.reachy_setup
+        client = self.server.reachy_client
+        result = (setup.snapshot() if setup else {
+            "available": False, "bridge_prepared": False, "configured": bool(client),
+            "address": urlsplit(client.base).hostname if client else "", "skipped": False, "busy": False,
+            "message": "Reachy setup is not enabled on this installation. Run setup-orin.sh --reachy-only."})
+        runtime = self.server.reachy_runtime
+        if runtime and runtime.client_factory is None:
+            result.update(status="error", configured=False, available=False, address="",
+                          message="Reachy control dependencies are missing. Run setup-orin.sh --reachy-only on the Orin; image inference remains available.")
+        body = json.dumps(result).encode()
+        self.send_headers(200, "application/json", len(body))
+        self.wfile.write(body)
+
+    def reachy_setup_action(self, action):
+        # Address changes and discovery require the same process token as engine
+        # selection. A different website cannot use this UI as a LAN probe.
+        if self.host_refused():
+            return
+        if not self.fetch_site_allowed():
+            self.json_error(403, "Cross-site requests are disabled.")
+            return
+        token = self.headers.get("X-Reachy-Token", "")
+        if not secrets.compare_digest(token.encode(), RELAY_TOKEN.encode()):
+            self.json_error(401, "Missing or out-of-date access token. Reload Live Vision.")
+            return
+        setup = self.server.reachy_setup
+        if setup is None:
+            self.json_error(503, "Reachy setup is not enabled. Run setup-orin.sh --reachy-only.")
+            return
+        try:
+            if self.headers.get("Transfer-Encoding"):
+                raise ValueError("Chunked uploads are disabled.")
+            if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                raise ValueError("Content-Type must be application/json.")
+            if not 0 < int(self.headers.get("Content-Length", "0")) <= 1024:
+                raise ValueError("Setup requires a JSON object under 1024 bytes.")
+            payload = self.read_json_body(max_len=1024)
+            if action == "discover":
+                if payload:
+                    raise ValueError("Discovery takes no network targets or ranges.")
+                result = setup.discover()
+            elif action in {"configure", "skip"}:
+                runtime = self.server.reachy_runtime
+                if not runtime:
+                    raise RuntimeError("Reachy setup runtime is not available.")
+                # Finish any in-flight speech/control request against the previous
+                # robot before changing the target for both HTTP and HTTPS.
+                if not runtime.lock.acquire(blocking=False):
+                    self.json_error(409, "Reachy is busy. Wait for the current operation and retry.")
+                    return
+                try:
+                    if action == "configure":
+                        if set(payload) != {"address"} or not isinstance(payload["address"], str):
+                            raise ValueError("Enter one robot IP address or hostname.")
+                        result = setup.configure(payload["address"])
+                    else:
+                        if payload:
+                            raise ValueError("Skip takes no parameters.")
+                        result = setup.skip()
+                    runtime.refresh()
+                finally:
+                    runtime.lock.release()
+            else:
+                self.json_error(404, "Unknown Reachy setup action.")
+                return
+            body = json.dumps(result).encode()
+            self.send_headers(200, "application/json", len(body))
+            self.wfile.write(body)
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            self.json_error(400, str(exc))
+        except (OSError, RuntimeError) as exc:
+            self.json_error(503, str(exc))
+
     def reachy_state(self):
-        if not self.server.reachy_client:
+        if self.server.reachy_runtime:
+            self.server.reachy_runtime.refresh()
+        client = self.server.reachy_client
+        if not client:
             body = json.dumps({"enabled": False}).encode()
             self.send_headers(200, "application/json", len(body))
             self.wfile.write(body)
             return
-        st = self.server.reachy_client.state()
+        st = client.state()
         st["enabled"] = True
         st["speech_enabled"] = self.server.piper is not None
         body = json.dumps(st).encode()
@@ -1266,6 +1442,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def reachy_apps(self):
+        if self.server.reachy_runtime:
+            self.server.reachy_runtime.refresh()
         if not self.server.reachy_client:
             self.json_error(503, "reachy daemon not configured (--reachy-daemon-url)")
             return
@@ -1274,6 +1452,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def reachy_control(self, sub):
+        runtime = self.server.reachy_runtime
+        if runtime:
+            with runtime.lock:
+                runtime.refresh()
+                if (not runtime.address or
+                        self.headers.get("X-Reachy-Address", "") != runtime.address):
+                    self.json_error(409, "The selected robot changed. Refresh Reachy Mini setup before controlling it.")
+                    return
+                self._reachy_control(sub)
+        else:
+            self._reachy_control(sub)
+
+    def _reachy_control(self, sub):
         """Dispatch every POST /api/reachy/<sub>. sub has no leading slash (stripped by do_POST)."""
         client = self.server.reachy_client
         parts = sub.split("/")
@@ -1412,6 +1603,8 @@ def main():
                         help="Robot daemon REST API (motors, apps, volume) - NOT the camera/mic "
                              "bridge. Empty disables motor/app control; the camera/mic still works "
                              "through --reachy-url either way.")
+    parser.add_argument("--reachy-config", type=Path, default=None,
+                        help="Device-local reachy.env managed by optional Reachy setup in the UI.")
     parser.add_argument("--piper-bin", type=Path, default=None,
                         help="Path to a Piper TTS binary. Empty disables /api/reachy/speak.")
     parser.add_argument("--piper-model", type=Path, default=None,
@@ -1449,13 +1642,15 @@ def main():
         reachy_address = bridge_address(args.reachy_url)
     except ValueError as exc:
         parser.error(str(exc))
+    if args.reachy_config and args.reachy_daemon_url:
+        parser.error("Use --reachy-config or --reachy-daemon-url, not both.")
     if args.reachy_daemon_url and Reachy is None:
         parser.error("--reachy-daemon-url needs the `requests` package "
                      "(sudo apt install python3-requests).")
     if bool(args.piper_bin) != bool(args.piper_model):
         parser.error("Provide both --piper-bin and --piper-model.")
-    if args.piper_bin and not args.reachy_daemon_url:
-        parser.error("--piper-bin needs --reachy-daemon-url too (speech plays through the robot).")
+    if args.piper_bin and not (args.reachy_daemon_url or args.reachy_config):
+        parser.error("--piper-bin needs --reachy-daemon-url or --reachy-config (speech plays through the robot).")
     engines = {}
     managed_engines = False
     if args.engines_config:
@@ -1503,10 +1698,18 @@ def main():
         context.load_cert_chain(args.cert, args.key)
     servers = []
     threads = []
+    reachy_runtime = None
     try:
         reachy_client = Reachy(args.reachy_daemon_url) if args.reachy_daemon_url else None
         piper = (Piper(args.piper_bin, args.piper_model, args.piper_out_dir)
                 if args.piper_bin and args.piper_model else None)
+        reachy_setup = None
+        if args.reachy_config:
+            reachy_setup = ReachySetup(args.reachy_config)
+            piper_factory = (lambda: Piper(args.piper_bin, args.piper_model, args.piper_out_dir)) if piper else None
+            reachy_runtime = ReachyRuntime(reachy_setup, piper_factory=piper_factory)
+            reachy_setup.on_change = reachy_runtime.apply
+            reachy_runtime.refresh()
         if managed_engines:
             engine_switcher = ServiceEngineSwitcher(engines, args.default_engine, GENERATION_LOCK)
         else:
@@ -1518,6 +1721,8 @@ def main():
         server.reachy_address = reachy_address
         server.reachy_client = reachy_client
         server.piper = piper
+        server.reachy_setup = reachy_setup
+        server.reachy_runtime = reachy_runtime
         server.engine_switcher = engine_switcher
         server.services_config = services_config
         server.https_port = args.https_port
@@ -1531,6 +1736,8 @@ def main():
             secure.reachy_address = reachy_address
             secure.reachy_client = reachy_client
             secure.piper = piper
+            secure.reachy_setup = reachy_setup
+            secure.reachy_runtime = reachy_runtime
             secure.engine_switcher = engine_switcher
             secure.services_config = services_config
             secure.allowed_hosts = allowed_hosts
@@ -1542,9 +1749,8 @@ def main():
         scheme = "https" if primary_tls else "http"
         print(f"UI: {scheme}://{args.host}:{args.port}; backend: http://127.0.0.1:{args.backend_port}", flush=True)
         print(f"Reachy Mini bridge: {args.reachy_url}, relayed under /reachy/", flush=True)
-        print(f"Reachy Mini daemon (motors/apps/volume): "
-              f"{args.reachy_daemon_url or 'not configured'}", flush=True)
-        print(f"Speech: {'Piper at ' + str(args.piper_bin) if piper else 'not configured'}", flush=True)
+        print(f"Reachy Mini setup: {'available in the UI' if reachy_setup else args.reachy_daemon_url or 'not configured'}", flush=True)
+        print(f"Speech: {'Piper installed; starts on first speech request when a robot is configured' if piper else 'not configured'}", flush=True)
         print(f"Engines: {', '.join(engines) if engines else 'not configured'}", flush=True)
         print("UI availability does not imply model or Jetson readiness.", flush=True)
         server.serve_forever()
@@ -1556,6 +1762,8 @@ def main():
             worker.join(timeout=2)
         for server in reversed(servers):
             server.server_close()
+        if reachy_runtime:
+            reachy_runtime.close()
 
 
 if __name__ == "__main__":
