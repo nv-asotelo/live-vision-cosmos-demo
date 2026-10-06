@@ -122,8 +122,8 @@ is repaired.
 
 ## Temporary headless-entry recovery candidate
 
-**Pending: prepared on a disposable copy, not yet applied to the SD or validated
-on an Orin.** This candidate addresses the diagnosed case of an enabled setup
+**Physical repair attempt failed; whether any bytes were written remains unknown.
+Hardware recovery is unverified.** This candidate addresses the diagnosed case of an enabled setup
 target, intact OEM programs and no saved regular user. It is not a general boot
 repair or a replacement for NVIDIA's setup wizard. It is an **opt-in recovery**;
 the normal image builder and demo installer do not install these overrides.
@@ -154,8 +154,18 @@ The three added files matched their expected hashes, and no account was precreat
 
 The original backup and repaired image were verified. A write dry run identified
 13 changed 4 MiB chunks: 52 MiB to rewrite, containing 113,655 changed bytes.
-The physical write is still pending; these copy and preflight checks are not a
-successful card repair or hardware boot result.
+The physical writer subsequently exited with a generic `RuntimeError` after
+beginning full pre-write verification. The visible log does not establish whether
+any bytes were written or identify the failure's cause. Its privileged detailed
+report requires renewed Mac administrator authentication to inspect. Copy and
+preflight checks remain passed, but the card repair did not succeed.
+
+The whole-card identity was revalidated, no writer or open card handles were
+visible, and `diskutil eject` succeeded; the device then disappeared. The
+checksum-verified backup remains in a private durable cache. Retain that backup
+and inspect the privileged report's phase and write counters before deciding what
+to do next. **Never automatically retry this write** or treat ejection as proof of
+a successful repair. Boot and login remain unverified.
 
 After successful setup and the [pre-install checks](#before-installing-live-vision),
 optional cleanup removes **only those three added files**, after checking they are
@@ -276,9 +286,12 @@ account, `nv-oobe.target` as the default, and the OEM setup programs present. Th
 saved OEM logs still contained the same four terminal-discovery errors; they did
 not establish a new cause for the latest boot's behavior. The
 [temporary headless entry override](#temporary-headless-entry-recovery-candidate)
-has passed its copy checks and write preflight for this diagnosed state. It has not
-been applied to the card or validated on hardware. A fresh login, root-device check and
-filesystem-expansion check are still required before installation.
+passed its copy checks and write preflight for this diagnosed state, but the
+subsequent physical writer failed. Whether it changed any card bytes is unknown
+until its privileged phase/counters are inspected; the visible log alone cannot
+resolve that. The card was safely ejected after identity and handle checks, and
+the verified backup is retained. Repair, fresh login, root-device identity and
+filesystem expansion remain unverified; do not retry the write automatically.
 
 For preboot access and firmware requirements, use NVIDIA's
 [Orin Nano setup guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)

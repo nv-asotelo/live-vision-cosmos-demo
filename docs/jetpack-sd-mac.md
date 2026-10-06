@@ -135,7 +135,15 @@ the setup target enabled, and OEM programs present. Saved terminal-error logs we
 unchanged, so the underlying cause remains unknown. A complete checksummed
 root-partition backup was preserved. A temporary headless entry override passed
 checks on a repaired disposable copy, including a clean full filesystem check and
-write preflight, but is not yet applied or hardware-validated. This
+write preflight. The physical writer then exited with a generic `RuntimeError`
+after beginning full pre-write verification. The visible log proves neither zero
+writes nor a specific failure cause; whether any bytes changed remains unknown
+pending inspection of the privileged report's phase and counters, which requires
+renewed Mac administrator authentication. The card's identity was revalidated,
+no writer or open card handles were visible, and ejection succeeded with the
+device disappearing. The checksum-verified backup remains in private durable
+storage. Retain it and inspect the report before any retry; never retry
+automatically. The repair was not successful. This
 [opt-in recovery](first-boot-recovery.md#temporary-headless-entry-recovery-candidate)
 is separate from the normal installer. An authenticated check of
 the active SD root, successful expansion, compute installation, and Live Vision
