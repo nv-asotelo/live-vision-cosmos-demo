@@ -195,11 +195,13 @@ filesystem reported approximately 57 GiB total, 38 GiB used and 17 GiB available
 after installation. The guarded 12 GiB engine-build resume path worked in this
 trial; it remains a provisional allowance rather than a peak-space guarantee.
 See the [installer recovery guidance](first-boot-recovery.md#if-the-demo-installer-stops).
-The subsequent exact-response text test passed, but **image-quality acceptance
-failed**: several captions invented objects or actions absent from the submitted
-images. The cause remains unresolved; the build is ready but the demo is not yet
-accepted. Wi-Fi has not been tested. Test later network changes only after accurate
-real-image inference and with an authenticated USB console, using
+The subsequent exact-response text test passed, but the first image-quality check
+failed. Inspection proved an HWC/CHW patch-layout mismatch in the pinned ONNX
+exporter. After correcting it and rebuilding only vision, **the same three images
+produced scene-grounded captions through the API and browser UI**; the language
+engine's hash was unchanged. This establishes bounded signs of life, with minor
+caption errors recorded in the recovery guide, not general accuracy or speed.
+Wi-Fi has not been tested. Test later network changes with an authenticated USB console, using
 [the Wi-Fi switching guide](network-switching.md). Host image validation and
 flash verification do not establish those results. See
 [the first-boot observations](first-boot-recovery.md#what-has-been-observed).

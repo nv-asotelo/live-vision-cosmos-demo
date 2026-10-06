@@ -419,7 +419,7 @@ system memory is not a dedicated GPU allocation. The successful resume validates
 this trial's corrected swap check and remaining-work path; it does not establish
 that every workload fits the provisional 12 GiB allowance.
 
-**Image-quality gate failed; the demo is not yet accepted.** A bounded text test
+**Initial image-quality gate failed.** A bounded text test
 returned the requested greeting and count coherently, showing that text generation
 works. Image requests also returned captions and streamed native timing/usage
 fields, but several captions invented visible details. With the one-sentence scene-description prompt,
@@ -439,15 +439,44 @@ now applies it on fresh builds and supports a vision-only retry of this complete
 SDK installation. The old vision engine was preserved privately, and the language
 engine's SHA-256 was recorded before repair. Forty-four focused offline tests cover
 the applier, installer guards and migration behavior, including service recovery
-after a failed repair. The corrected export and rebuilt engine remain pending
-hardware acceptance. Preserve these
-failed examples and rerun the same known images and request settings after the fix before
-claiming a working demo. Readiness, coherent text, and valid streaming metadata do
-not substitute for accurate image captions. The individual requests, with mixed
-cache conditions, do not establish a latency comparison or performance improvement.
+after a failed repair.
 
-After the image-quality gate passes, use [the Wi-Fi switching guide](network-switching.md)
-to test another connection and restore Ethernet. Wi-Fi changes remain untested:
+**Corrected-vision checkpoint, 2026-10-06:** the rebuilt ONNX patch initializer
+matches the raw checkpoint's HWC weights exactly (maximum absolute error zero)
+and no longer matches the obsolete CHW permutation. The normal installer reused
+the finished language build, rebuilt only vision, restarted services and passed
+readiness. The language-engine SHA-256 is unchanged; the vision-engine hash changed.
+Temporary build swap is off. Post-repair snapshots show approximately 39 GiB used
+and 16 GiB available on the SD, including the preserved old vision engine, and
+4,140 MiB system memory used with 3,405 MiB available. These are snapshots, not peaks.
+
+The exact text test again returned `Hello 1 2 3 4 5`. Repeating the same three
+known-image requests with unchanged prompts and generation settings restored
+scene-grounded captions. Browser image upload and streamed captions also passed:
+
+| Known image | Before correction | After correction in the UI |
+| --- | --- | --- |
+| Giant panda among bamboo | Invented a car and plate of food | Recognized a black-and-white panda among bamboo |
+| Red panda resting on wood | Described a blurred human face | Recognized the red panda resting its head on a wooden plank |
+| Woman and dog on a beach | Invented a person holding a chip bag | Described the woman in a plaid shirt and the dog's high-five action |
+
+**This passes a bounded signs-of-life and scene-grounding check.** It is not a
+general accuracy benchmark: “forest” overstates what the panda crop establishes,
+eating is uncertain from the still, “both smiling” in one API response attributes
+an expression to the dog, and the UI's “golden retriever” breed label is unverified.
+Keep these limitations alongside the successful subject/action recognition.
+Physical camera capture and Reachy switching were not tested in this check.
+
+The browser showed native server timing separately from transport-inclusive
+browser timing, and resource sparklines updated. The previous inline-style CSP
+errors were absent. An optional `/api/runtime` request still returned 404; the
+existing fallback allowed captions to complete. No network settings changed.
+Preserved private request logs and screenshots contain both failed and corrected
+examples. Their differing cache conditions and output lengths do not establish
+a latency comparison or performance improvement.
+
+Use [the Wi-Fi switching guide](network-switching.md) to test another connection
+and restore Ethernet. Wi-Fi changes remain untested:
 no target network has been selected, and an authenticated USB console must be
 re-established before attempting the handover.
 

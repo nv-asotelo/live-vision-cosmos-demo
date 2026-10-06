@@ -116,8 +116,11 @@ The separate experimental checkpoint-direct builder is a different code path.
 This branch now carries a revision- and digest-guarded compatibility applier for
 the ONNX exporter. It preserves original notices and invalidates only the vision
 artifacts and service acceptance stages; the completed language engine is retained.
-Corrected visual inference remains an acceptance requirement, not an assumed
-benefit of the SDK upgrade. See the [hardware record](first-boot-recovery.md).
+The repaired engine passed the repeated text and three known-image checks through
+the API and browser UI, with minor unsupported caption details recorded explicitly.
+The language engine was unchanged. This validates bounded signs of life, not a
+general accuracy or latency improvement; the controlled comparison below has not
+been performed. See the [hardware record](first-boot-recovery.md).
 
 First establish coherent text and accurate captions from a freshly built engine,
 then check browser streaming and Reachy switching. Use fixed, versioned test images

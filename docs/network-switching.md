@@ -7,15 +7,18 @@ do not treat these instructions as evidence that a network switch succeeded.
 
 **Trial checkpoint, 2026-10-06:** wired setup, fresh login and filesystem expansion
 passed. The demo installer built both engines, enabled its services and passed
-readiness. Coherent text generation passed, but the **image-quality gate failed**:
-several captions invented details absent from the test images. The cause remains
-unresolved and the demo is not yet accepted. Wi-Fi has not been tested or a target
-network selected. Resolve image quality first, then reconnect and authenticate
+readiness. The first image check failed; a verified HWC/CHW export mismatch was
+then corrected and the vision engine rebuilt. **The repeated text and three
+known-image checks now pass the bounded signs-of-life gate**, through the API and
+browser UI. Minor unsupported details remain; this is not a general accuracy or
+performance benchmark. See the [recorded results](first-boot-recovery.md#what-has-been-observed).
+Ethernet remains active, Wi-Fi is disconnected, and temporary build swap is off.
+Wi-Fi has not been tested or a target network selected. Reconnect and authenticate
 the identified USB console before any handover. Installation success does not
 waive the prerequisites below.
 
 Start only after wired setup, a fresh login, adequate SD space, and **a real image
-request producing a coherent caption** have passed. A ready endpoint alone is not
+request producing a coherent caption matching the known image content** have passed. A ready endpoint alone is not
 enough. Keep Ethernet connected and an authenticated USB serial console open on
 the identified board. Use the console for changes so losing an SSH route does not
 lose control. Leave other Orins untouched.
