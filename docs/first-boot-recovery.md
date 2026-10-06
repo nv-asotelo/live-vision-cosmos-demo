@@ -257,6 +257,9 @@ substitutes for their artifacts.
 | Insufficient storage on a fresh, partial, or stale-SDK installation | Setup requires **25 GiB free**. Check the root device, filesystem expansion and available space. Free identified unrelated files or use larger storage; do not manufacture stage markers to obtain the lower threshold. |
 | Both exports are complete and only engine construction remains | A **12 GiB** resume allowance applies only after every preceding stage is complete, native build tools are present, both ONNX exports and their external tensor ranges validate, and the exported Jinja matches the provider template. This budgets 4 GiB for temporary swap plus engine output and margin; it is not a measured peak-space guarantee. Other partial installations retain the 25 GiB requirement. |
 | Maintenance of an already completed installation | The **8 GiB** threshold applies only when the heavy stages have current-SDK markers and the checked native runtime, ONNX exports, engines and Jinja template are present and nonempty. |
+| Coherent text but incorrect image captions with this pinned SDK | Check the Cosmos HWC/CHW patch-layout contract. The branch's guarded applier fixes the known ONNX exporter mismatch automatically during visual export. The same-SDK repair path validates existing artifacts, allows 12 GiB remaining space, retains the language engine, and rebuilds vision only. Do not switch quantizers or tune image budgets to hide a correctness defect. |
+| The visual-layout applier rejects the SDK revision or source digest | Stop and inspect the exact source path and diff. The similarly named experimental checkpoint-direct builder is a different module. Do not relax the digest check or replace unexpected local edits. |
+| A vision repair fails after pausing inference | Fix the reported error and rerun the normal installer. Repair invalidates service-start and readiness markers as well as the vision build receipt, so a new process must restart and check the services. Do not serve a partially rebuilt vision engine. |
 | Build-swap creation, activation or verification fails | Engine construction requires the equivalent of a **4 GiB active swapfile** (allowing the swap header page). Inspect `df -h`, `free -h` and `swapon --show --bytes`; fix the reported cause before resuming. The installer stops before the engine build if it cannot verify this swap. |
 | Swap is active but the installer reports that its size could not be verified | Use `swapon --show=NAME,SIZE --bytes --noheadings --raw`. On util-linux 2.39.3, `--output` is accepted as an abbreviation of `--options`, leaving extra columns in the report. An older installer parsed `file` as the size and rejected valid swap. Update to the corrected installer; do not bypass verification or add swap repeatedly. |
 | An old, unfamiliar or replaced `data/build-swap.img` exists | Inspect its identity and active-swap status. Existing files are not reformatted or deleted by this run. Already-active sufficient swap is preserved; if the run activates an existing inactive file, cleanup may deactivate it but preserves the file. A replaced path is left untouched. |
@@ -431,7 +434,13 @@ channel-last (HWC) pixels, but its exporter still permutes the checkpoint's patc
 weights for channel-first (CHW) pixels. A comparison of the deployed ONNX initializer
 with the raw checkpoint confirmed that obsolete permutation exactly. This is an
 input/weight ordering defect; the checks do not attribute it to INT4 quantization.
-The export correction and visual-engine rebuild are pending validation. Preserve these
+The source correction passed a digest check and an idempotence check; the installer
+now applies it on fresh builds and supports a vision-only retry of this completed
+SDK installation. The old vision engine was preserved privately, and the language
+engine's SHA-256 was recorded before repair. Forty-four focused offline tests cover
+the applier, installer guards and migration behavior, including service recovery
+after a failed repair. The corrected export and rebuilt engine remain pending
+hardware acceptance. Preserve these
 failed examples and rerun the same known images and request settings after the fix before
 claiming a working demo. Readiness, coherent text, and valid streaming metadata do
 not substitute for accurate image captions. The individual requests, with mixed
