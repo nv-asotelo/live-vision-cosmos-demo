@@ -379,8 +379,8 @@ prompt. A fresh login with the chosen account then succeeded. A changed boot ID,
 the same SD root and SSH key, 47 GiB available, wired routing, and no remaining
 reboot-required flag were verified. No failed systemd units were listed. These
 checks establish successful setup and storage persistence; they do not establish
-model inference. The pinned demo installer has now started over Ethernet, with
-its log retained on the new board. No cause is attributed to the failed Mac repair.
+model inference. The pinned demo installer then ran over Ethernet, with its log
+retained on the new board. No cause is attributed to the failed Mac repair.
 
 **Build checkpoint, 2026-10-06:** CUDA/TensorRT installation, SDK 0.11 native
 compilation and runtime import, checkpoint download, all-linear INT4 quantization,
@@ -395,18 +395,52 @@ of a byte count. Cleanup successfully deactivated and removed the temporary file
 After the command correction, a separate hardware check passed activation, size
 verification and cleanup. Completed exports consumed space that the original
 25 GiB restart check still reserved for work already finished; the installer now
-has a guarded allowance for resuming directly at engine construction.
+has a guarded **12 GiB** allowance for resuming directly at engine construction.
+It validates the preceding stages, native tools, both exported graphs and external
+tensor-file ranges, and the provider Jinja before selecting that allowance.
 
 The installed PyTorch 2.13.0 CUDA build warns that this GPU is unsupported, and
 ModelOpt warns about the installed Transformers version. These warnings did not
 prevent the two CPU exports from completing. This route uses NumPy quantization,
 CPU ONNX export, and native CUDA/TensorRT engine construction and serving; it does
-not establish that PyTorch CUDA inference works on this board. Engine construction
-and real-image caption validation remain pending at this checkpoint.
+not establish that PyTorch CUDA inference works on this board.
 
-After real image inference is confirmed, use [the Wi-Fi switching guide](network-switching.md)
-to test another connection and restore Ethernet. Network changes remain untested
-at this checkpoint.
+**Installer completion checkpoint, 2026-10-06:** the resumed run built both the
+native LLM engine and visual engine, enabled the shim and UI, and passed readiness.
+The supervised installer reported `ActiveState=active`, `SubState=exited` and
+`ExecMainStatus=0`; its temporary build swap was off. The filesystem reported
+about **57 GiB total, 38 GiB used and 17 GiB available**. An idle system-memory
+snapshot reported **4,073 MiB used of 7,546 MiB, with 3,472 MiB available**. These
+are post-install snapshots, not peak build-space or peak RAM measurements, and
+system memory is not a dedicated GPU allocation. The successful resume validates
+this trial's corrected swap check and remaining-work path; it does not establish
+that every workload fits the provisional 12 GiB allowance.
+
+**Image-quality gate failed; the demo is not yet accepted.** A bounded text test
+returned the requested greeting and count coherently, showing that text generation
+works. Image requests also returned captions and streamed native timing/usage
+fields, but several captions invented visible details. With the one-sentence scene-description prompt,
+a giant-panda image was described as a panda in a basket with a red lid, and a
+woman-and-dog beach image as a dog wearing a sweater and holding a camera; those
+details were absent. An earlier giant-panda request also invented a building and
+awning. A red-panda request recognized the animal but did not establish reliable
+accuracy across scenes.
+
+Inspection identified an SDK 0.11 patch-layout mismatch: the Cosmos runtime supplies
+channel-last (HWC) pixels, but its exporter still permutes the checkpoint's patch
+weights for channel-first (CHW) pixels. A comparison of the deployed ONNX initializer
+with the raw checkpoint confirmed that obsolete permutation exactly. This is an
+input/weight ordering defect; the checks do not attribute it to INT4 quantization.
+The export correction and visual-engine rebuild are pending validation. Preserve these
+failed examples and rerun the same known images and request settings after the fix before
+claiming a working demo. Readiness, coherent text, and valid streaming metadata do
+not substitute for accurate image captions. The individual requests, with mixed
+cache conditions, do not establish a latency comparison or performance improvement.
+
+After the image-quality gate passes, use [the Wi-Fi switching guide](network-switching.md)
+to test another connection and restore Ethernet. Wi-Fi changes remain untested:
+no target network has been selected, and an authenticated USB console must be
+re-established before attempting the handover.
 
 For preboot access and firmware requirements, use NVIDIA's
 [Orin Nano setup guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)

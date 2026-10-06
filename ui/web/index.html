@@ -49,20 +49,20 @@
           <button id="reachyFaceSound" title="Turns the base toward the last sound the microphone array heard">Face last sound</button>
         </div>
         <div class="controls">
-          <span class="hint" style="margin:0">Motors</span>
+          <span class="hint control-label">Motors</span>
           <button id="reachyMotorStiff" title="Motors hold position - required for Centre and the pose controls below to actually move the robot">Stiff</button>
           <button id="reachyMotorSoft" title="Gravity-compensated - the robot can be posed by hand">Soft</button>
           <button id="reachyMotorLimp" title="Motors off - Centre and the pose controls will be refused until Stiff is selected again">Limp</button>
         </div>
         <div class="controls">
           <button id="reachySpeakAnswer" title="Sends the current caption (the text under the camera) to Reachy's speaker, via Piper text-to-speech running on the Orin">Speak Cosmos caption</button>
-          <label for="reachySpeakText" style="flex:1;min-width:220px">Or type your own text for Reachy to say aloud
-            <input id="reachySpeakText" type="text" placeholder="Type text, then press Speak" maxlength="500" style="display:block;width:100%;margin-top:6px">
+          <label for="reachySpeakText" class="speech-input-label">Or type your own text for Reachy to say aloud
+            <input id="reachySpeakText" type="text" placeholder="Type text, then press Speak" maxlength="500">
           </label>
           <button id="reachySpeakButton" title="Speaks the text typed on the left through Reachy's speaker, via Piper text-to-speech running on the Orin">Speak</button>
         </div>
         <div class="controls" role="group" aria-label="Speech rate">
-          <span class="hint" style="margin:0">Speech rate</span>
+          <span class="hint control-label">Speech rate</span>
           <button type="button" class="speedopt" data-rate="0.5">0.5×</button>
           <button type="button" class="speedopt" data-rate="0.8">0.8×</button>
           <button type="button" class="speedopt active" data-rate="1">1×</button>
@@ -90,9 +90,9 @@
             <div class="padwrap">
               <div class="pad" id="padXY"><i></i></div>
               <div class="vwrap">
-                <span class="hint" style="margin:0;font-size:10px">Z</span>
+                <span class="hint axis-label">Z</span>
                 <input type="range" class="vert" id="posZ" min="-0.018" max="0.018" step="0.001" value="0">
-                <b class="hint" id="zv" style="margin:0;font-size:10.5px">0.000</b>
+                <b class="hint" id="zv">0.000</b>
               </div>
             </div>
           </div>
@@ -107,7 +107,7 @@
               </div>
               <button type="button" id="jogPitchDown" class="jog jog-d" aria-label="Jog: look down" title="Hold to jog down">▼</button>
             </div>
-            <h4 style="margin-top:10px">Body yaw <b id="byawv">0.000 rad</b></h4>
+            <h4 class="body-yaw-heading">Body yaw <b id="byawv">0.000 rad</b></h4>
             <input type="range" id="byaw" min="-2.79" max="2.79" step="0.01" value="0" list="byawSnaps" title="Snaps near 0/45/90/135 degrees; turns the head to match, so head and body swing together">
             <datalist id="byawSnaps">
               <option value="-2.35619"></option>
@@ -120,7 +120,7 @@
             </datalist>
           </div>
         </div>
-        <div class="ctlrow" style="margin-top:8px">
+        <div class="ctlrow roll-control-row">
           <div class="ctl wide">
             <h4>Roll <b id="rollv">0.000 rad</b></h4>
             <input type="range" id="roll" min="-0.7" max="0.7" step="0.01" value="0">

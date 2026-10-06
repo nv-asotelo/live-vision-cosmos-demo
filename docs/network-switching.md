@@ -5,6 +5,15 @@ NetworkManager 1.46.0; checkpoint syntax was checked against that version's sour
 Record hardware results separately;
 do not treat these instructions as evidence that a network switch succeeded.
 
+**Trial checkpoint, 2026-10-06:** wired setup, fresh login and filesystem expansion
+passed. The demo installer built both engines, enabled its services and passed
+readiness. Coherent text generation passed, but the **image-quality gate failed**:
+several captions invented details absent from the test images. The cause remains
+unresolved and the demo is not yet accepted. Wi-Fi has not been tested or a target
+network selected. Resolve image quality first, then reconnect and authenticate
+the identified USB console before any handover. Installation success does not
+waive the prerequisites below.
+
 Start only after wired setup, a fresh login, adequate SD space, and **a real image
 request producing a coherent caption** have passed. A ready endpoint alone is not
 enough. Keep Ethernet connected and an authenticated USB serial console open on
