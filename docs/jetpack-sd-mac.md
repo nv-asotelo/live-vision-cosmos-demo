@@ -58,6 +58,10 @@ After ejection, move the card to the powered-off Orin, select SD in its boot men
 needed, complete first-boot setup, and enable SSH. Confirm `/` is on `mmcblk0p1`,
 L4T reports R39 revision 2.1, and `df -h /` shows the expanded filesystem. Then
 return to the [demo Quickstart](../README.md#quickstart-automated-setup).
+If USB discovery, the setup wizard or account login fails, use
+[First-boot setup and recovery](first-boot-recovery.md) before retrying or reflashing.
+Identify the new board through its USB/local console; do not use an existing Orin's
+address as a discovery shortcut.
 
 ### USB-C setup without a monitor
 
@@ -72,8 +76,15 @@ at 115200 baud, and press Enter. Create the initial user before attempting SSH. 
 setup, USB device mode provides serial login and USB networking; the Orin also needs
 internet access for the subsequent dependency/model downloads.
 
+If no USB device appears, check power and reconnect the data cable before concluding
+that firmware is incompatible. If setup is interrupted or canceled, a subsequent
+login prompt is only a prompt: verify that the selected account can actually log in.
+The [recovery guide](first-boot-recovery.md) includes bounded checks for both cases.
+
 This route is verified from the pinned package's `nv-oobe.service`, `nv-oobe.sh`,
-`nv-oem-config.conf` and `nv-oobe-post.sh`; it is not a physical-boot test of this card.
+`nv-oem-config.conf` and `nv-oobe-post.sh`. A physical first-boot trial also reached
+the wizard over USB after the data cable was reinserted; account validation remains
+a separate checkpoint, described in the recovery guide.
 USB gadget serial starts after Linux boots and cannot act as the preboot UEFI/ISO
 console. Use a monitor and keyboard or the documented header UART for those menus.
 The ISO's minimum firmware requirement to start is not proof that the standalone SD
@@ -105,8 +116,12 @@ Ubuntu builder. Installing the archive prerequisites before extracting the BSP f
 that failure; the subsequent complete build passed. The earlier 2026-09-29 record
 is retained as historical evidence for its separately flashed image.
 
-SD boot, first-boot expansion, compute installation, and Live Vision on these cards remain untested.
-Host image validation and flash verification do not establish those results.
+A subsequent board trial reached USB first-time setup and a login prompt. The reported
+account did not pass the controlled login check; its cause remains under diagnosis.
+An authenticated check of the active SD root and filesystem expansion, compute
+installation, and Live Vision on this card remain unverified. Host image validation
+and flash verification do not establish those results. See
+[the first-boot observations](first-boot-recovery.md#what-has-been-observed).
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
 bytes the validated image was built from; they are not claimed as publisher-signed checksums.

@@ -91,6 +91,26 @@ stage() {
   stage_mark "$name"
 }
 
+minimum_free_space_gib() {
+  # One early marker (for example system_packages) says nothing about the remaining
+  # downloads/builds. Only a completed, current-SDK installation gets the maintenance
+  # allowance. Do not demand quantized checkpoint files: host export does not copy them.
+  local name artifact
+  for name in fetch_edgellm edgellm_venv build_edgellm_runtime quantize export_onnx_llm export_onnx_visual validate_chat_template build_engine; do
+    if ! stage_done "$name"; then printf '25\n'; return; fi
+  done
+  for artifact in "$EDGELLM_PY" \
+      "$EDGELLM_DIR/build/examples/llm/llm_build" \
+      "$EDGELLM_DIR/build/examples/multimodal/visual_build" \
+      "$EDGELLM_DIR/build/libNvInfer_edgellm_plugin.so" \
+      "$ONNX_DIR/llm/model.onnx" "$ONNX_DIR/visual/model.onnx" \
+      "$ENGINE_DIR/llm.engine" "$ENGINE_DIR/visual/visual.engine" \
+      "$ENGINE_DIR/chat_template.jinja"; do
+    if [[ ! -s "$artifact" ]]; then printf '25\n'; return; fi
+  done
+  printf '8\n'
+}
+
 # ---------------------------------------------------------------------------------------
 # Stages
 # ---------------------------------------------------------------------------------------
@@ -111,14 +131,8 @@ do_preflight() {
     || die "This pinned demo requires JetPack 7.2.1 / L4T 39.2.1. An existing compatible installation is fine; for fresh Mac SD preparation see docs/jetpack-sd-mac.md."
   local avail_kb; avail_kb=$(df -Pk "$(dirname "$INSTALL_DIR")" | awk 'NR==2{print $4}')
   local avail_gb=$((avail_kb / 1024 / 1024))
-  # 25 GiB covers the WHOLE pipeline from a cold start (checkpoint + build tree + exports +
-  # engine). On a resume, the disk-heaviest stages (checkpoint download, quantize, the native
-  # compile) are often already done and their output is already on disk - re-demanding the
-  # full-pipeline minimum on every single invocation would wrongly block a resume that has
-  # genuinely enough room left for what remains (export/engine-build/piper, a few GiB).
-  local min_gb=25
-  [[ -z "$(ls -A "$STATE_DIR" 2>/dev/null)" ]] || min_gb=8
-  [[ "$avail_gb" -ge "$min_gb" ]] || die "only ${avail_gb} GiB free under $(dirname "$INSTALL_DIR") - need at least ${min_gb} GiB ($( [[ "$min_gb" -eq 25 ]] && echo "whole pipeline: checkpoint + TensorRT-Edge-LLM build tree + exported engines" || echo "resuming - remaining stages only" )). Free up space or point INSTALL_DIR's parent at a larger disk/SD card."
+  local min_gb; min_gb="$(minimum_free_space_gib)"
+  [[ "$avail_gb" -ge "$min_gb" ]] || die "only ${avail_gb} GiB free under $(dirname "$INSTALL_DIR") - need at least ${min_gb} GiB ($( [[ "$min_gb" -eq 25 ]] && echo "fresh, partial or stale-SDK build; heavy artifacts not yet confirmed complete" || echo "maintenance of a completed current-SDK build" )). Check filesystem expansion and free space with findmnt / and df -h; free unrelated files or use a larger disk/SD card. Do not create stage markers to bypass this check."
   [[ "$avail_gb" -ge 40 || "$min_gb" -eq 8 ]] || warn "${avail_gb} GiB free is tight. The build will likely fit, but there's little margin - consider a 64 GB+ card if this is a fresh flash."
   mkdir -p "$INSTALL_DIR"
   id -u "$SERVICE_USER" >/dev/null 2>&1 || die "SERVICE_USER=$SERVICE_USER does not exist. Set SERVICE_USER to the account that should own and run these services (not root)."
@@ -534,6 +548,10 @@ PY
 }
 
 BUILD_SWAPFILE="$INSTALL_DIR/data/build-swap.img"
+BUILD_SWAP_CREATED=0
+BUILD_SWAP_ACTIVATED=0
+BUILD_SWAP_FILE_ID=""
+BUILD_SWAP_BYTES=$((4 * 1024 * 1024 * 1024))
 # The export and engine-build stages need the memory the inference shim holds (~3.5 GB of an
 # 8 GB Orin Nano, none of it swappable - see the shim's no-swap drop-in), and llm_build
 # rewrites the engine file the shim has mapped. On a fresh Orin the shim isn't running yet;
@@ -554,6 +572,12 @@ resume_inference() {
   fi
 }
 
+build_swap_size_bytes() {
+  # A failed inventory is different from an inactive file. pipefail preserves errors.
+  swapon --show --bytes --noheadings --raw --output NAME,SIZE \
+    | awk -v path="$BUILD_SWAPFILE" '$1 == path {print $2}'
+}
+
 enable_build_swap() {
   # llm_build's serialization step measurably needs more than an 8 GB Orin Nano's physical
   # RAM alone provides (observed: OOM-killed with "Total Weights Memory" already logged at
@@ -562,16 +586,78 @@ enable_build_swap() {
   # fixed by exactly this: enabling swap only unblocks it, memory pressure isn't from a bug.
   # Swap is for the build only: disable_build_swap turns it off again afterwards, for serving
   # stability.
-  [[ -f "$BUILD_SWAPFILE" ]] || {
-    fallocate -l 4G "$BUILD_SWAPFILE" 2>/dev/null || dd if=/dev/zero of="$BUILD_SWAPFILE" bs=1M count=4096 status=none
+  local active_bytes page_bytes
+  page_bytes="$(getconf PAGESIZE)"
+  active_bytes="$(build_swap_size_bytes)" || die "Cannot inspect active swap. Check 'swapon --show' before retrying; no engine build was started."
+  if [[ -n "$active_bytes" ]]; then
+    [[ "$active_bytes" =~ ^[0-9]+$ && "$active_bytes" -ge $((BUILD_SWAP_BYTES - page_bytes)) ]] \
+      || die "Existing swap at $BUILD_SWAPFILE is smaller than the required 4 GiB swapfile; leaving it unchanged. Check 'swapon --show --bytes' before retrying."
+    warn "Using already-active swap at $BUILD_SWAPFILE; it will remain active because this run did not create or activate it."
+    return 0
+  fi
+  [[ ! -L "$BUILD_SWAPFILE" && ( ! -e "$BUILD_SWAPFILE" || -f "$BUILD_SWAPFILE" ) ]] \
+    || die "Refusing non-regular/symlink build swap path: $BUILD_SWAPFILE. Inspect it manually; no file was replaced."
+  if [[ ! -e "$BUILD_SWAPFILE" ]]; then
+    mkdir -p "$(dirname "$BUILD_SWAPFILE")"
+    (umask 077; set -o noclobber; : > "$BUILD_SWAPFILE") \
+      || die "Cannot create $BUILD_SWAPFILE safely. Check its parent directory and free space."
+    BUILD_SWAP_CREATED=1
+    BUILD_SWAP_FILE_ID="$(stat -c '%d:%i' -- "$BUILD_SWAPFILE")"
+    fallocate -l "$BUILD_SWAP_BYTES" "$BUILD_SWAPFILE" 2>/dev/null \
+      || dd if=/dev/zero of="$BUILD_SWAPFILE" bs=1M count=4096 status=none \
+      || die "Cannot allocate the 4 GiB build swapfile. Check 'df -h' and filesystem expansion before retrying."
     chmod 600 "$BUILD_SWAPFILE"
-    mkswap "$BUILD_SWAPFILE" >/dev/null
-  }
-  swapon "$BUILD_SWAPFILE" 2>/dev/null || true
+    mkswap "$BUILD_SWAPFILE" >/dev/null \
+      || die "Cannot initialize build swap. Check the filesystem and the mkswap error above."
+  else
+    # A stale file can be reused if swapon accepts it, but it is never reformatted or
+    # removed by this invocation. A malformed partial file needs manual inspection.
+    [[ "$(stat -c '%s' -- "$BUILD_SWAPFILE")" -ge "$BUILD_SWAP_BYTES" ]] \
+      || die "Existing $BUILD_SWAPFILE is too small. It was preserved; inspect it and active swap before removing an abandoned build file."
+    BUILD_SWAP_FILE_ID="$(stat -c '%d:%i' -- "$BUILD_SWAPFILE")"
+  fi
+  BUILD_SWAP_ACTIVATED=1
+  swapon "$BUILD_SWAPFILE" \
+    || die "Could not activate the required 4 GiB build swap; no engine build was started. Check 'swapon --show', 'free -h', 'df -h' and the error above. A swapfile must be supported by its filesystem. Fix the cause and rerun setup."
+  active_bytes="$(build_swap_size_bytes)" || die "Cannot verify build swap after swapon; stopping before engine build."
+  [[ "$active_bytes" =~ ^[0-9]+$ && "$active_bytes" -ge $((BUILD_SWAP_BYTES - page_bytes)) ]] \
+    || die "swapon returned but the required 4 GiB build swap is not active. Check 'swapon --show --bytes'; no engine build was started."
 }
 disable_build_swap() {
-  swapoff "$BUILD_SWAPFILE" 2>/dev/null || true
-  rm -f "$BUILD_SWAPFILE"
+  [[ "$BUILD_SWAP_CREATED" -eq 1 || "$BUILD_SWAP_ACTIVATED" -eq 1 ]] || return 0
+  # Never act on a different file placed at this pathname during a failed build.
+  if [[ -L "$BUILD_SWAPFILE" || ! -f "$BUILD_SWAPFILE" \
+      || "$(stat -c '%d:%i' -- "$BUILD_SWAPFILE")" != "$BUILD_SWAP_FILE_ID" ]]; then
+    warn "Build swap path changed; leaving it untouched. Inspect 'swapon --show' and $BUILD_SWAPFILE manually."
+    return 1
+  fi
+  local active_bytes
+  active_bytes="$(build_swap_size_bytes)" || { warn "Cannot inspect swap during cleanup; preserving $BUILD_SWAPFILE."; return 1; }
+  if [[ -n "$active_bytes" ]]; then
+    if [[ "$BUILD_SWAP_ACTIVATED" -ne 1 ]] || ! swapoff "$BUILD_SWAPFILE"; then
+      warn "Build swap remains active; preserving $BUILD_SWAPFILE. Free RAM and inspect 'swapon --show' before disabling it; do not delete an active swapfile."
+      return 1
+    fi
+    active_bytes="$(build_swap_size_bytes)" || { warn "Cannot verify swapoff; preserving $BUILD_SWAPFILE."; return 1; }
+    [[ -z "$active_bytes" ]] || { warn "Build swap is still active; preserving $BUILD_SWAPFILE."; return 1; }
+  fi
+  if [[ "$BUILD_SWAP_CREATED" -eq 1 ]] && ! rm -f -- "$BUILD_SWAPFILE"; then
+    warn "Build swap is inactive but could not be removed: $BUILD_SWAPFILE. Check filesystem permissions and free space before retrying."
+    return 1
+  fi
+  BUILD_SWAP_CREATED=0
+  BUILD_SWAP_ACTIVATED=0
+}
+
+setup_exit_cleanup() {
+  local status="$1"
+  # Covers allocation, activation and builder failures. Never remove unrelated swap,
+  # and never restart a shim against an engine that may have been partially rewritten.
+  disable_build_swap || warn "Temporary build-swap cleanup needs attention before serving."
+  if [[ "$status" -ne 0 && "$SHIM_PAUSED" -eq 1 ]]; then
+    warn "Setup failed while inference was paused. It remains stopped; fix the reported error and rerun setup to finish before serving."
+  fi
+  return "$status"
 }
 
 do_build_engine() {
@@ -599,7 +685,7 @@ do_build_engine() {
   [[ -f "$ENGINE_DIR/llm.engine" ]] || die "llm_build ran but $ENGINE_DIR/llm.engine is missing."
   cmp -s "$RAW_DIR/chat_template.jinja" "$ENGINE_DIR/chat_template.jinja" \
     || die "The engine is missing the matching provider Jinja template. Do not start this engine."
-  disable_build_swap
+  disable_build_swap || die "Build finished but swap cleanup failed. Resolve the warning above before starting services."
 }
 
 do_link_engine() {
@@ -752,5 +838,8 @@ main() {
   stage smoke_test              do_smoke_test
 }
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  trap 'setup_exit_cleanup "$?"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   main "$@"
 fi

@@ -29,6 +29,27 @@ For an explicitly requested fresh SD card from a Mac, use
 [its workflow](docs/jetpack-sd-mac.md) before returning here. OS preparation requires
 identifying the card and macOS administrator authentication.
 
+### First boot is a separate acceptance gate
+
+Read [First-boot setup and recovery](docs/first-boot-recovery.md) before discovering
+or configuring a newly connected board. Identify it through the USB connection or
+its local console; never probe a historical Orin IP to find a new device. Keep an
+existing deployment untouched unless the user explicitly targets it. Do not remove
+another board's SSH key or accept a mismatch to bypass device identification.
+
+Use `python3 scripts/jetpack/first_boot.py probe --json` for a read-only USB/serial
+inventory. If USB is absent, check power and reconnect the data cable once before
+inferring anything about firmware. A login prompt does not validate account creation.
+Stop after one controlled failed login with explicitly supplied credentials; do not
+guess usernames/passwords or assume wizard cancellation was safe. For an account
+failure, identify the returned SD by reader, size and available serial, then use the
+guide's read-only offline audit before choosing a repair. The audit is not a reset.
+
+Before running bootstrap, verify a fresh successful login, the intended account,
+SD root device, L4T release, filesystem expansion and this board's network identity.
+State unknowns explicitly. Neither a flash receipt nor a reachable login prompt
+establishes those results.
+
 ## Model access needs no human
 
 No Hugging Face token is needed: `nvidia/Cosmos3-Edge`, at the revision this repo pins, is

@@ -32,10 +32,27 @@ must not install Cosmos3-Edge, Live Vision UI, model weights, users, or SSH keys
    workflow's disk-access guidance and wait for the user to grant that permission.
    Do not change privacy settings yourself. Staged files and logs are retained on
    failure; the helper stages outside Documents to avoid privacy-folder failures.
-5. Ask the user to boot the SD on the Orin, finish first-boot setup, and enable
-   SSH. Check `findmnt -n -o SOURCE /`, `cat /etc/nv_tegra_release`, and `df -h /`
-   before claiming SD boot or filesystem expansion. Writing and readback alone
-   do not prove boot, GPU execution, or Live Vision inference.
+5. Identify the intended new board through USB or its local console before access.
+   Do not probe a historical Orin IP, alter another board's SSH host key, or touch
+   an existing deployment as a discovery shortcut. Ask the user to boot the SD
+   normally with FC REC unjumpered. Read
+   [First-boot setup and recovery](../../../docs/first-boot-recovery.md) if discovery,
+   the wizard or login does not proceed. The read-only
+   `python3 scripts/jetpack/first_boot.py probe --json` command inventories USB/serial
+   devices without network discovery. If USB is absent, check power and reconnect
+   the data cable once; absence alone does not diagnose firmware incompatibility.
+6. Have the user complete visible first-boot setup and verify a fresh login. A login
+   prompt does not prove account creation succeeded; do not assume Cancel or Ctrl-C
+   safely finishes the wizard. Prefer passwords entered directly in Terminal; if
+   credentials are explicitly supplied for a controlled test, make at most one
+   attempt. If rejected, stop guessing and follow the read-only offline card audit.
+   Recheck reader, capacity and available serial before any repair, preserve a
+   recoverable copy, and diagnose before changing accounts or setup state.
+7. On the identified board, check `whoami`, `findmnt -n -o SOURCE /`,
+   `cat /etc/nv_tegra_release`, and `df -h /`, then establish its network identity
+   and SSH access. Do not claim account repair until a fresh on-board login succeeds.
+   Writing and readback alone do not prove SD boot, filesystem expansion, GPU
+   execution, or Live Vision inference.
 
 Return to [AGENTS.md](../../../AGENTS.md) for demo setup, which installs the
 missing compute components and then the application. This skill does not update
