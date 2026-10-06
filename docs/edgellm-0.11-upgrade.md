@@ -107,6 +107,18 @@ Sources: [V2 decode dispatch](https://github.com/NVIDIA/TensorRT-Edge-LLM/blob/9
 
 ## Acceptance and stopping rule
 
+**Hardware finding, 2026-10-06:** the first candidate built and served coherent
+text, but failed known-image caption checks. The pinned ONNX export module
+`tensorrt_edgellm/models/cosmos3_reasoner/modeling_cosmos3_reasoner_visual.py`
+still applies a CHW weight permutation, while the native Cosmos runner supplies
+HWC patches. The exported initializer matched that obsolete permutation exactly.
+The separate experimental checkpoint-direct builder is a different code path.
+This branch now carries a revision- and digest-guarded compatibility applier for
+the ONNX exporter. It preserves original notices and invalidates only the vision
+artifacts and service acceptance stages; the completed language engine is retained.
+Corrected visual inference remains an acceptance requirement, not an assumed
+benefit of the SDK upgrade. See the [hardware record](first-boot-recovery.md).
+
 First establish coherent text and accurate captions from a freshly built engine,
 then check browser streaming and Reachy switching. Use fixed, versioned test images
 with small objects, colors, text and multiple subjects; healthy endpoints alone are

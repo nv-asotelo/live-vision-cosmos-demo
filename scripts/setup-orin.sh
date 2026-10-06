@@ -26,6 +26,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------------------
 INSTALL_DIR="/opt/live-vision-cosmos-demo"
 EDGELLM_COMMIT="95515c2f87fba8982db5a519f9022277667b3cc9"   # tag v0.11.0
+COSMOS_VISUAL_LAYOUT_SHA256="a5804ab79e6210972c6be3ef2c98beee663da0bf0661510d42219d6e109531ed"
 COSMOS_MODEL_REPO="nvidia/Cosmos3-Edge"
 COSMOS_MODEL_REVISION="344d602b128d1bbdacb43b08d0a3626f46343e29"
 PIPER_VERSION="1.2.0"
@@ -66,7 +67,9 @@ stage_revision() {
   # export or serialized engine with the v0.11.0 source and Jinja contract.
   # Copy the matching demo sources too, including when invoked from another checkout.
   case "$1" in
-    fetch_repo_self|fetch_edgellm|edgellm_venv|build_edgellm_runtime|quantize|export_onnx_llm|export_onnx_visual|validate_chat_template|build_engine|link_engine|enable_services|smoke_test)
+    export_onnx_visual|build_visual_layout)
+      printf '%s:%s\n' "$EDGELLM_COMMIT" "$COSMOS_VISUAL_LAYOUT_SHA256" ;;
+    fetch_repo_self|fetch_edgellm|edgellm_venv|build_edgellm_runtime|quantize|export_onnx_llm|validate_chat_template|build_engine|link_engine|enable_services|smoke_test)
       printf '%s\n' "$EDGELLM_COMMIT" ;;
     *) printf '\n' ;;
   esac
@@ -96,7 +99,7 @@ completed_build_artifacts_present() {
   # downloads/builds. Only a completed, current-SDK installation gets the maintenance
   # allowance. Do not demand quantized checkpoint files: host export does not copy them.
   local name artifact
-  for name in fetch_edgellm edgellm_venv build_edgellm_runtime quantize export_onnx_llm export_onnx_visual validate_chat_template build_engine; do
+  for name in fetch_edgellm edgellm_venv build_edgellm_runtime quantize export_onnx_llm export_onnx_visual validate_chat_template build_engine build_visual_layout; do
     stage_done "$name" || return 1
   done
   for artifact in "$EDGELLM_PY" \
@@ -121,6 +124,11 @@ engine_build_inputs_present() {
   done
   # Only an engine build that has not finished qualifies for this middle tier.
   [[ ! -e "$STATE_DIR/build_engine" ]] || return 1
+  engine_export_metadata_present
+}
+
+engine_export_metadata_present() {
+  local artifact
   for artifact in "$EDGELLM_PY" "$EDGELLM_DIR/build/examples/llm/llm_build" \
       "$EDGELLM_DIR/build/examples/multimodal/visual_build"; do
     [[ -s "$artifact" && -x "$artifact" ]] || return 1
@@ -181,10 +189,29 @@ except Exception:
 PY
 }
 
+visual_layout_repair_inputs_present() {
+  # Narrow migration from the same SDK: retain the finished language engine and
+  # rebuild only vision. A stale SDK or incomplete earlier work still needs 25 GiB.
+  local name
+  if stage_done export_onnx_visual && stage_done build_visual_layout; then return 1; fi
+  for name in system_packages pin_clocks fetch_repo_self jetpack_compute fetch_edgellm \
+      edgellm_venv build_edgellm_runtime download_checkpoint fix_raw_config quantize \
+      export_onnx_llm validate_chat_template build_engine; do
+    stage_done "$name" || return 1
+  done
+  if ! stage_done export_onnx_visual; then
+    [[ -f "$STATE_DIR/export_onnx_visual" \
+       && "$(cat "$STATE_DIR/export_onnx_visual")" == "$EDGELLM_COMMIT" ]] || return 1
+  fi
+  [[ -s "$ENGINE_DIR/llm.engine" ]] || return 1
+  cmp -s "$RAW_DIR/chat_template.jinja" "$ENGINE_DIR/chat_template.jinja" || return 1
+  engine_export_metadata_present
+}
+
 minimum_free_space_gib() {
   if completed_build_artifacts_present; then
     printf '8\n'
-  elif engine_build_inputs_present; then
+  elif engine_build_inputs_present || visual_layout_repair_inputs_present; then
     # Provisional remaining-work allowance: 4 GiB build swap, serialized engines
     # and margin. This is not a measured v0.11 peak-disk-usage claim.
     printf '12\n'
@@ -611,9 +638,16 @@ do_export_onnx_llm() {
 
 do_export_onnx_visual() {
   pause_inference
+  # Persist the restart/readiness requirement across a failed run; SHIM_PAUSED
+  # alone is process-local and cannot recover a stopped service on the next run.
+  rm -f "$STATE_DIR"/{build_visual_layout,enable_services,smoke_test}
   sudo -u "$SERVICE_USER" mkdir -p "$ONNX_DIR"
   local llm_export="$EDGELLM_DIR/.venv/bin/tensorrt-edgellm-export"
   [[ -x "$llm_export" ]] || die "tensorrt-edgellm-export not found in the venv - the build_edgellm_runtime stage should have installed it via pip install -e '.[server,server-tools,export,tools]'."
+  # The pinned native Cosmos runner supplies HWC patches. Remove the stale
+  # exporter-only CHW permutation before loading checkpoint weights.
+  sudo -u "$SERVICE_USER" "$EDGELLM_PY" \
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fix_cosmos_visual_layout.py" "$EDGELLM_DIR"
   sudo -u "$SERVICE_USER" "$llm_export" "$RAW_DIR" "$ONNX_DIR" \
     --task reasoning --skip-llm
 }
@@ -759,9 +793,7 @@ do_build_engine() {
   enable_build_swap
   sudo -u "$SERVICE_USER" mkdir -p "$ENGINE_DIR"
   local llm_build="$EDGELLM_DIR/build/examples/llm/llm_build"
-  local visual_build="$EDGELLM_DIR/build/examples/multimodal/visual_build"
   [[ -x "$llm_build" ]] || die "llm_build binary not found at $llm_build - the build_edgellm_runtime stage should have built it."
-  [[ -x "$visual_build" ]] || die "visual_build binary not found at $visual_build."
   # These exact capacities match this repo's actual deployed engine's own config.json
   # (builder_config: max_batch_size=1, max_input_len=1024, max_kv_cache_capacity=1024,
   # max_kv_pool_pages=8) - do not "helpfully" raise them without re-measuring RAM headroom.
@@ -773,13 +805,31 @@ do_build_engine() {
   sudo -u "$SERVICE_USER" env EDGELLM_PLUGIN_PATH="$EDGELLM_DIR/build/libNvInfer_edgellm_plugin.so" "$llm_build" \
     --onnxDir "$ONNX_DIR/llm" --engineDir "$ENGINE_DIR" \
     --maxInputLen 1024 --maxKVCacheCapacity 1024 --maxKVPoolPages 8 --maxBatchSize 1
-  sudo -u "$SERVICE_USER" env EDGELLM_PLUGIN_PATH="$EDGELLM_DIR/build/libNvInfer_edgellm_plugin.so" "$visual_build" \
-    --onnxDir "$ONNX_DIR/visual" --engineDir "$ENGINE_DIR" \
-    --minImageTokens 4 --maxImageTokens 1024 --maxImageTokensPerImage 512
+  build_visual_engine_files
   [[ -f "$ENGINE_DIR/llm.engine" ]] || die "llm_build ran but $ENGINE_DIR/llm.engine is missing."
   cmp -s "$RAW_DIR/chat_template.jinja" "$ENGINE_DIR/chat_template.jinja" \
     || die "The engine is missing the matching provider Jinja template. Do not start this engine."
   disable_build_swap || die "Build finished but swap cleanup failed. Resolve the warning above before starting services."
+  stage_mark build_visual_layout
+}
+
+build_visual_engine_files() {
+  local visual_build="$EDGELLM_DIR/build/examples/multimodal/visual_build"
+  [[ -x "$visual_build" ]] || die "visual_build binary not found at $visual_build."
+  sudo -u "$SERVICE_USER" env EDGELLM_PLUGIN_PATH="$EDGELLM_DIR/build/libNvInfer_edgellm_plugin.so" "$visual_build" \
+    --onnxDir "$ONNX_DIR/visual" --engineDir "$ENGINE_DIR" \
+    --minImageTokens 4 --maxImageTokens 1024 --maxImageTokensPerImage 512
+  [[ -s "$ENGINE_DIR/visual/visual.engine" ]] || die "visual_build ran but its engine is missing or empty."
+}
+
+do_build_visual_layout() {
+  # A successful pre-fix build_engine marker is deliberately retained: rebuilding
+  # the vision engine must not re-quantize or overwrite the language engine.
+  rm -f "$STATE_DIR"/{enable_services,smoke_test}
+  pause_inference
+  enable_build_swap
+  build_visual_engine_files
+  disable_build_swap || die "Visual build finished but swap cleanup failed. Resolve the warning before serving."
 }
 
 do_link_engine() {
@@ -921,6 +971,7 @@ main() {
   stage export_onnx_visual      do_export_onnx_visual
   stage validate_chat_template do_validate_chat_template
   stage build_engine            do_build_engine
+  stage build_visual_layout     do_build_visual_layout
   stage link_engine             do_link_engine
   stage setup_piper             do_setup_piper
   stage setup_reachy_env        do_setup_reachy_env

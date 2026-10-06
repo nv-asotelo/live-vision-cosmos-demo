@@ -216,6 +216,15 @@ Or just open `https://<orin-ip>:8443/` in a browser (accept the self-signed cert
 once), grant camera permission, and confirm captions stream in and actually describe what
 the camera sees.
 
+The 0.11 trial also passed coherent text while producing incorrect image captions.
+Its ONNX exporter permuted patch weights to CHW although the native Cosmos runner
+supplies HWC pixels. `scripts/fix_cosmos_visual_layout.py` corrects that specific
+pinned source during visual export, preserving the original notices. It rejects
+other SDK revisions or unexpected source edits. A same-SDK retry rebuilds vision
+without re-quantizing or replacing the finished language engine. Inspect the
+actual exported weights and repeat the same known-image tests before accepting
+the repair; a successful build or readiness response is insufficient.
+
 ## Boundaries - things not to "fix" without re-deriving them
 
 Several values in `scripts/setup-orin.sh` are retained from the measured 0.10.1

@@ -12,9 +12,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SDK = "95515c2f87fba8982db5a519f9022277667b3cc9"
+VISUAL_REVISION = SDK + ":a5804ab79e6210972c6be3ef2c98beee663da0bf0661510d42219d6e109531ed"
 HEAVY_STAGES = (
     "fetch_edgellm", "edgellm_venv", "build_edgellm_runtime", "quantize",
-    "export_onnx_llm", "export_onnx_visual", "validate_chat_template", "build_engine",
+    "export_onnx_llm", "export_onnx_visual", "validate_chat_template", "build_engine", "build_visual_layout",
 )
 ARTIFACTS = (
     "sdk/.venv/bin/python", "sdk/build/examples/llm/llm_build",
@@ -63,6 +64,10 @@ def load(path, *, load_external_data):
     with open(path) as handle:
         return Model(json.load(handle))
 '''
+
+
+def revision(stage):
+    return VISUAL_REVISION if stage in ("export_onnx_visual", "build_visual_layout") else SDK
 
 # These stand in for all privileged/Linux-specific operations. Sparse fixture files
 # use logical 4 GiB sizes without allocating that much disk space or memory.
@@ -143,7 +148,7 @@ class SetupFailureGuards(unittest.TestCase):
 
     def populate_completed_install(self):
         for stage in HEAVY_STAGES:
-            (self.fixture / "state" / stage).write_text(SDK + "\n")
+            (self.fixture / "state" / stage).write_text(revision(stage) + "\n")
         for relative in ARTIFACTS:
             path = self.fixture / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +156,7 @@ class SetupFailureGuards(unittest.TestCase):
 
     def populate_engine_ready(self):
         for stage in ENGINE_READY_STAGES:
-            (self.fixture / "state" / stage).write_text(SDK + "\n")
+            (self.fixture / "state" / stage).write_text(revision(stage) + "\n")
         for relative in ARTIFACTS[:4]:
             path = self.fixture / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -212,8 +217,8 @@ class SetupFailureGuards(unittest.TestCase):
                 marker = self.fixture / "state" / stage
                 marker.unlink()
                 self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
-                marker.write_text(SDK + "\n")
-        for stage in (*HEAVY_STAGES, "fetch_repo_self"):
+                marker.write_text(revision(stage) + "\n")
+        for stage in (*(s for s in HEAVY_STAGES if s != "build_visual_layout"), "fetch_repo_self"):
             with self.subTest(stale=stage):
                 marker = self.fixture / "state" / stage
                 marker.write_text("old-sdk\n")
@@ -221,7 +226,126 @@ class SetupFailureGuards(unittest.TestCase):
                 if stage == "build_engine":
                     marker.unlink()
                 else:
-                    marker.write_text(SDK + "\n")
+                    marker.write_text(revision(stage) + "\n")
+
+    def test_same_sdk_visual_repair_allows_12_gib_without_invalidating_language(self):
+        self.populate_engine_ready()
+        engine = self.fixture / "engines"
+        engine.mkdir()
+        (engine / "llm.engine").write_bytes(b"unchanged language engine")
+        (engine / "chat_template.jinja").write_bytes((self.fixture / "raw/chat_template.jinja").read_bytes())
+        (self.fixture / "state/build_engine").write_text(SDK + "\n")
+        (self.fixture / "state/export_onnx_visual").write_text(SDK + "\n")
+        result = self.run_shell("minimum_free_space_gib; stage_done build_engine; if stage_done export_onnx_visual; then exit 42; fi")
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "12"), result.stderr)
+        self.assertEqual((engine / "llm.engine").read_bytes(), b"unchanged language engine")
+        (self.fixture / "state/export_onnx_visual").write_text("unrecognized-old-vision\n")
+        self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+
+    def test_visual_repair_builds_only_vision_and_keeps_language_engine(self):
+        self.populate_engine_ready()
+        engine = self.fixture / "engines"
+        engine.mkdir()
+        (engine / "llm.engine").write_bytes(b"unchanged language engine")
+        (self.fixture / "state/build_engine").write_text(SDK + "\n")
+        result = self.run_shell('''
+pause_inference() { :; }
+sudo() {
+  [[ "$*" == *"/visual_build "* ]] || { echo UNEXPECTED_BUILD; return 1; }
+  echo visual-builder >> "$FIXTURE/events"
+  mkdir -p "$ENGINE_DIR/visual"
+  printf 'corrected visual engine' > "$ENGINE_DIR/visual/visual.engine"
+}
+stage build_engine do_build_engine
+stage build_visual_layout do_build_visual_layout
+''', swap=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("UNEXPECTED_BUILD", result.stdout)
+        self.assertEqual((engine / "llm.engine").read_bytes(), b"unchanged language engine")
+        self.assertEqual(self.events(), ["allocate", "initialize", "activate", "visual-builder", "deactivate"])
+        self.assertEqual((self.fixture / "state/build_visual_layout").read_text().strip(), VISUAL_REVISION)
+
+    def test_fresh_combined_build_records_vision_receipt_without_double_build(self):
+        self.populate_engine_ready()
+        result = self.run_shell('''
+pause_inference() { :; }
+sudo() {
+  case "$*" in
+    *" mkdir -p "*) mkdir -p "$ENGINE_DIR" ;;
+    *"/llm_build "*)
+      echo language-builder >> "$FIXTURE/events"
+      printf 'language engine' > "$ENGINE_DIR/llm.engine"
+      cp "$RAW_DIR/chat_template.jinja" "$ENGINE_DIR/chat_template.jinja" ;;
+    *"/visual_build "*)
+      echo visual-builder >> "$FIXTURE/events"
+      mkdir -p "$ENGINE_DIR/visual"
+      printf 'visual engine' > "$ENGINE_DIR/visual/visual.engine" ;;
+    *) echo UNEXPECTED_BUILD; return 1 ;;
+  esac
+}
+stage build_engine do_build_engine
+stage build_visual_layout do_build_visual_layout
+''', swap=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.events().count("language-builder"), 1)
+        self.assertEqual(self.events().count("visual-builder"), 1)
+        self.assertEqual((self.fixture / "state/build_visual_layout").read_text().strip(), VISUAL_REVISION)
+
+    def test_visual_export_patch_failure_does_not_export_or_reuse_vision_receipt(self):
+        self.populate_engine_ready()
+        exporter = self.fixture / "sdk/.venv/bin/tensorrt-edgellm-export"
+        exporter.write_text("fixture exporter")
+        exporter.chmod(0o755)
+        (self.fixture / "state/build_visual_layout").write_text(VISUAL_REVISION)
+        for stage in ("enable_services", "smoke_test"):
+            (self.fixture / "state" / stage).write_text(SDK)
+        (self.fixture / "state/export_onnx_visual").write_text(SDK)
+        result = self.run_shell('''
+pause_inference() { :; }
+sudo() {
+  case "$*" in
+    *" mkdir -p "*) return 0 ;;
+    *"fix_cosmos_visual_layout.py"*) echo fixture-patch-rejected >&2; return 2 ;;
+    *) echo MUST_NOT_EXPORT; return 1 ;;
+  esac
+}
+stage export_onnx_visual do_export_onnx_visual
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("MUST_NOT_EXPORT", result.stdout)
+        self.assertIn("fixture-patch-rejected", result.stderr)
+        self.assertFalse((self.fixture / "state/build_visual_layout").exists())
+        for stage in ("enable_services", "smoke_test"):
+            self.assertFalse((self.fixture / "state" / stage).exists())
+        self.assertEqual((self.fixture / "state/export_onnx_visual").read_text(), SDK)
+
+    def test_failed_visual_repair_retry_restarts_services_and_checks_readiness(self):
+        self.populate_engine_ready()
+        for stage in ("build_engine", "enable_services", "smoke_test"):
+            (self.fixture / "state" / stage).write_text(SDK)
+        first = self.run_shell('''
+pause_inference() { SHIM_PAUSED=1; }
+build_visual_engine_files() { return 42; }
+stage build_visual_layout do_build_visual_layout
+''', swap=True)
+        self.assertEqual(first.returncode, 42, first.stderr)
+        self.assertIn("remains stopped", first.stderr)
+        for stage in ("build_visual_layout", "enable_services", "smoke_test"):
+            self.assertFalse((self.fixture / "state" / stage).exists())
+        self.assertEqual((self.fixture / "state/build_engine").read_text(), SDK)
+        second = self.run_shell('''
+pause_inference() { :; }  # The service is still stopped from the previous process.
+build_visual_engine_files() { :; }
+do_enable_services() { echo SERVICES_RESTARTED; }
+do_smoke_test() { echo READINESS_CHECKED; }
+[[ "$SHIM_PAUSED" -eq 0 ]]
+stage build_visual_layout do_build_visual_layout
+stage enable_services do_enable_services
+stage smoke_test do_smoke_test
+''', swap=True)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("SERVICES_RESTARTED", second.stdout)
+        self.assertIn("READINESS_CHECKED", second.stdout)
 
     def test_engine_resume_rejects_missing_or_truncated_external_data(self):
         self.populate_engine_ready()
