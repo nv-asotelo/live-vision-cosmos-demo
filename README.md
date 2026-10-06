@@ -62,8 +62,9 @@ This optional route targets the **Orin Nano Super 8 GB developer kit (P3767-0005
 with compatible R39.2.1 QSPI firmware already installed. It prepares OS and NVIDIA drivers
 only. Boot the card, complete first-boot setup, enable SSH, then continue below.
 Validated on a **fresh 64 GB SD card** using this script and
-[agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md): writing and full image
-readback passed on 2026-09-29; SD boot is not yet tested.
+[agent skill](.agents/skills/flash-jetpack-sd-mac/SKILL.md): full image readback,
+SD boot, wired first-time setup, a fresh login and guarded filesystem expansion
+have passed on the new board. SDK 0.11 engine/inference validation remains pending.
 See the [Mac workflow and validation record](docs/jetpack-sd-mac.md) for scope.
 
 Starting point: a Jetson Orin with **JetPack already flashed and booting**, reachable over
@@ -93,6 +94,11 @@ path, which `setup-orin.sh`, the systemd units and the shim hardcode - then runs
 twice: once to create and `chown` that directory, then for `setup-orin.sh` itself. Each step
 is its own SSH connection, so with password login the SSH password is asked for at every one:
 an unattended run needs passwordless sudo on the Orin and SSH key login to it.
+
+**Changing Wi-Fi later:** finish setup over Ethernet and confirm a real image
+caption first. Then follow [Change Wi-Fi after the demo works](docs/network-switching.md)
+for human and agent instructions, a guarded connection test, and restoration of
+Ethernet. The guide clearly marks hardware checks that are still pending.
 
 **Switching robots later** (a spare Reachy Mini, a new DHCP lease, or adding one to an Orin set
 up without) takes one command on the Orin, not a re-run of `bootstrap.sh`. An Orin set up by

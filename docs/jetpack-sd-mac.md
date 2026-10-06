@@ -167,8 +167,8 @@ patch was applied remains unknown; the failed repair cannot be credited with thi
 result. The console then reached the chosen user's shell. Checks confirmed
 `graphical.target`, ext4 root on `/dev/mmcblk0p1`, L4T 39.2.1, wired Ethernet with
 a default route, and active SSH; its host-key fingerprint was obtained through the
-local console. Account/shell access and wired networking work, but explicit logout
-and fresh login are still unverified because this may be a post-setup automatic login.
+local console. This first shell established account access; fresh credential
+verification was performed after the reboot described below.
 
 Expansion initially blocked installation: the approximately 58.9 GiB card retained an
 approximately 8 GiB root partition. Its roughly 7.8 GiB filesystem reported 100%
@@ -184,8 +184,11 @@ verification found no problems. The filesystem now reports about **57 GiB total,
 [NVIDIA's resizing guidance](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/FlashingSupport.html#resizing-the-root-partition-to-fill-the-available-sd-card-space).
 A reboot was initiated for the pending NVIDIA bootloader-capsule/system update.
 The same board returned on USB with its chosen hostname at the login prompt.
-Fresh login, post-reboot root/storage checks, compute installation and Live Vision
-remain unverified. Host image validation and
+Fresh login then succeeded. The changed boot ID, same SD root and SSH identity,
+47 GiB free, working wired route and cleared reboot-required flag were verified.
+The pinned demo installer is running over Ethernet; compute installation and
+Live Vision inference remain pending. Test later network changes only after real
+inference, using [the Wi-Fi switching guide](network-switching.md). Host image validation and
 flash verification do not establish those results. See
 [the first-boot observations](first-boot-recovery.md#what-has-been-observed).
 

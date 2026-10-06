@@ -354,8 +354,8 @@ The console subsequently reached a shell under the chosen user and hostname.
 Checks confirmed `graphical.target`, an ext4 root on `/dev/mmcblk0p1`, L4T 39.2.1,
 wired Ethernet with a default route, and active SSH. Its SSH host-key fingerprint
 was read through the identified local console. **Account/shell access and wired
-networking are now working.** An explicit logout and fresh login have not yet been
-verified; the post-setup shell may have been opened automatically.
+networking were working at this checkpoint.** The initial post-setup shell alone
+did not establish fresh credential verification; that was checked after reboot below.
 
 Filesystem expansion initially blocked installation. On the approximately 58.9 GiB SD card,
 the root partition was still about 8 GiB; its roughly 7.8 GiB filesystem had 7.4 GiB
@@ -373,9 +373,16 @@ and 47 GiB available (14% used)**. The 25 GiB fresh-install free-space gate now 
 
 A reboot was initiated for the pending NVIDIA bootloader-capsule/system update.
 The same board returned on USB and displayed the chosen hostname at its login
-prompt. An explicit fresh login and post-reboot root/storage checks remain pending. Expansion success
-does not establish completion of that update or successful demo installation, and
-no cause is attributed to the failed Mac repair.
+prompt. A fresh login with the chosen account then succeeded. A changed boot ID,
+the same SD root and SSH key, 47 GiB available, wired routing, and no remaining
+reboot-required flag were verified. No failed systemd units were listed. These
+checks establish successful setup and storage persistence; they do not establish
+model inference. The pinned demo installer has now started over Ethernet, with
+its log retained on the new board. No cause is attributed to the failed Mac repair.
+
+After real image inference is confirmed, use [the Wi-Fi switching guide](network-switching.md)
+to test another connection and restore Ethernet. Network changes remain untested
+at this checkpoint.
 
 For preboot access and firmware requirements, use NVIDIA's
 [Orin Nano setup guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)

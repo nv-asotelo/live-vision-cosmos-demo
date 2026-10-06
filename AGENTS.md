@@ -50,6 +50,14 @@ SD root device, L4T release, filesystem expansion and this board's network ident
 State unknowns explicitly. Neither a flash receipt nor a reachable login prompt
 establishes those results.
 
+## Network changes after installation
+
+Follow [the network-switching guide](docs/network-switching.md) only after verified
+real-image inference over Ethernet. Keep an authenticated USB console during the
+Wi-Fi test, identify profiles from the actual board, and enter Wi-Fi secrets in
+the local prompt. Restore Ethernet and verify another caption before declaring
+the network test complete. Keep device details and secrets out of source control.
+
 ## Model access needs no human
 
 No Hugging Face token is needed: `nvidia/Cosmos3-Edge`, at the revision this repo pins, is
