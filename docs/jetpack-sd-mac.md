@@ -12,7 +12,8 @@ components before the demo build; OS-only media is intentionally not a full comp
   disk-access permission for the terminal/app running the command. QEMU uses 8 GiB
   and four virtual CPUs. No laptop GPU or CUDA is required.
 - Writable **64 GB+ microSD**, built-in SD reader or a USB reader that reports removable
-  media. The selected card is erased. The tested nominal 64 GB card reports 62,883,102,720 bytes.
+  media. The selected card is erased. Tested nominal 64 GB cards report
+  62,883,102,720 and 63,281,561,600 bytes.
 - **Orin Nano Super 8 GB developer kit P3767-0005**, FAB 300, board revision T.1,
   chip SKU D5, RAMCODE 2. This recipe is pinned to that hardware; it is not a generic Orin flasher.
 - Compatible **R39.2.1 QSPI firmware already installed**. The Mac card writer cannot
@@ -88,12 +89,24 @@ MacBook (macOS 26.7, 36 GiB RAM, built-in reader). The `--image-dir` route wrote
 read back all **10,181,672,960 image bytes**, matched SHA-256, and safely ejected the
 card. See the [validation record](validation/jetpack-sd-mac-2026-09-29.json).
 
-Image creation from fresh NVIDIA BSP/rootfs archives, GPT/ext4 checks, and the
-clean-rootfs scan passed with the earlier scripts this wrapper was adapted from.
-The new wrapper's fresh VM bootstrap was tested separately; its complete cold
-build has not been rerun.
-SD boot, first-boot expansion, compute installation, and Live Vision on this card
-remain untested. Flash verification does not establish those results.
+**Cold build, preflight and physical flash validated 2026-10-05**, using the current wrapper
+on an Apple Silicon MacBook (macOS 26.7.1, 36 GiB RAM). A fresh disposable QEMU VM
+built a new image from the pinned NVIDIA BSP/rootfs archives. GPT, ext4, clean-rootfs
+checks, transfer back to the Mac, and full uncompressed-image SHA-256 validation
+passed. The raw image is **10,181,672,960 bytes**; its compressed archive is
+**2,871,407,646 bytes**. After the successful dry run, the writer flashed a nominal
+64 GB card, read back all image bytes, matched SHA-256
+`960b6b55645257441b1fc860179f185b08c63d815390fd73499880693c17d39a`, and ejected
+the card. See the [2026-10-05 validation record](validation/jetpack-sd-mac-2026-10-05.json).
+The date is Pacific time; the receipt records UTC timestamps on 2026-10-06.
+
+The first cold-build attempt exposed a missing `bzip2` prerequisite in the minimal
+Ubuntu builder. Installing the archive prerequisites before extracting the BSP fixed
+that failure; the subsequent complete build passed. The earlier 2026-09-29 record
+is retained as historical evidence for its separately flashed image.
+
+SD boot, first-boot expansion, compute installation, and Live Vision on these cards remain untested.
+Host image validation and flash verification do not establish those results.
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
 bytes the validated image was built from; they are not claimed as publisher-signed checksums.
