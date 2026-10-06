@@ -58,6 +58,28 @@ needed, complete first-boot setup, and enable SSH. Confirm `/` is on `mmcblk0p1`
 L4T reports R39 revision 2.1, and `df -h /` shows the expanded filesystem. Then
 return to the [demo Quickstart](../README.md#quickstart-automated-setup).
 
+### USB-C setup without a monitor
+
+Boot the prepared SD normally with **FC REC unjumpered** and the usual barrel-jack
+power supply. USB-C is a data connection, not the board's power input. If an existing
+NVMe installation boots instead, select the SD in the UEFI boot menu.
+
+With no display connected, the pinned `nvidia-l4t-oobe` 39.2.1 package selects its
+headless setup wizard on USB gadget serial (`ttyGS0`). Connect a USB-C data cable to
+the Mac, identify the newly appearing `/dev/cu.usbmodem*` port, open that serial port
+at 115200 baud, and press Enter. Create the initial user before attempting SSH. After
+setup, USB device mode provides serial login and USB networking; the Orin also needs
+internet access for the subsequent dependency/model downloads.
+
+This route is verified from the pinned package's `nv-oobe.service`, `nv-oobe.sh`,
+`nv-oem-config.conf` and `nv-oobe-post.sh`; it is not a physical-boot test of this card.
+USB gadget serial starts after Linux boots and cannot act as the preboot UEFI/ISO
+console. Use a monitor and keyboard or the documented header UART for those menus.
+The ISO's minimum firmware requirement to start is not proof that the standalone SD
+can boot: complete the ISO's QSPI firmware update before switching to this image.
+See NVIDIA's [installation guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)
+and [USB interface documentation](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/hardware_layout.html).
+
 ## Validation
 
 **Validated 2026-09-29 on a fresh nominal 64 GB SD card**, using the supplied script
