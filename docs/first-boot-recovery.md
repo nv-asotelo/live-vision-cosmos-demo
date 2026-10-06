@@ -60,7 +60,10 @@ administrator session is available.
 3. Inspect a read-only copy or a read-only mount in an isolated Linux repair
    environment. Avoid filesystem journal replay during diagnosis. Keep account
    databases and logs local: they can contain credentials, hashes, device details,
-   and personal information.
+   and personal information. If the filesystem has a pending journal, a
+   journal-free inspection is provisional: confirm findings after replaying the
+   journal into a disposable copy or copy-on-write overlay whose backing card
+   remains read-only. Never replay it onto the physical card just to inspect it.
 4. In the Linux repair VM, run the audit against that read-only mounted root, using
    the username chosen during setup. `sudo` permits reading the protected account
    database; it does not make the mount writable:
@@ -78,7 +81,9 @@ administrator session is available.
 6. Choose a repair only after the evidence identifies the failure. Before modifying
    the card, preserve a recoverable copy and recheck its identity. Limit a repair
    to the diagnosed account/setup problem; do not overwrite the installation with
-   the original clean image just to retry login.
+   the original clean image just to retry login. If no account was saved and the
+   first-time setup target remains enabled, resume that setup on normal boot before
+   considering an offline account change.
 
 The audit is diagnostic. It does not reset a password, create an account, mount or
 unmount a disk, update firmware, or make the root filesystem writable. Password
@@ -160,9 +165,25 @@ Do not report an attempted action as successful without its resulting checkpoint
 During this branch's first-boot trial, USB enumeration was initially absent. After
 the data cable was reinserted, a Linux USB console and the first-time setup wizard
 appeared. Later, leaving wireless setup was followed by a login prompt; a controlled
-login attempt with the reported account was rejected. **The cause of that rejection
-is not yet established.** These observations motivate the checks above; they do not
-establish a firmware defect, unsafe network-cancel behavior, or a changed password.
+login attempt with the reported account was rejected.
+
+The returned SD was identified and inspected read-only. It contained **no saved
+regular user account**, and `default.target` still pointed to `nv-oobe.target`:
+first-time setup remained enabled. The card had L4T 39.2.1 and an approximately
+8 GiB root partition that had not expanded. Because its filesystem had a pending
+journal, these findings were confirmed after journal replay in a disposable
+copy-on-write overlay backed by the read-only card. The physical SD was unchanged.
+
+OEM setup logs recorded four input/output errors while discovering the terminal
+(`os.ttyname(0)`). This establishes a setup failure and explains why a login prompt
+was not proof of a saved account. **The cause of the terminal errors remains
+unknown**; the evidence does not establish a cable fault, a cancellation bug,
+incompatible firmware, or a changed password.
+
+The next step is to detach inspection mounts, eject safely, then boot the card
+normally with a stable USB data connection. Complete the enabled setup wizard and
+verify a fresh login, root device and filesystem expansion. No offline password
+reset or reflash is needed for this diagnosed state.
 
 For preboot access and firmware requirements, use NVIDIA's
 [Orin Nano setup guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)

@@ -117,10 +117,15 @@ that failure; the subsequent complete build passed. The earlier 2026-09-29 recor
 is retained as historical evidence for its separately flashed image.
 
 A subsequent board trial reached USB first-time setup and a login prompt. The reported
-account did not pass the controlled login check; its cause remains under diagnosis.
-An authenticated check of the active SD root and filesystem expansion, compute
-installation, and Live Vision on this card remain unverified. Host image validation
-and flash verification do not establish those results. See
+account did not pass the controlled login check. A read-only card audit, confirmed
+after journal replay into a disposable copy-on-write overlay, found no saved regular
+user, first-time setup still enabled, and the approximately 8 GiB root partition
+not yet expanded. OEM setup had logged terminal-discovery input/output errors; their
+underlying cause remains unknown. The physical card was unchanged. After safe
+ejection, the next step is normal boot with a stable USB data connection, completion
+of the setup wizard, and a fresh login check. An authenticated check of the active
+SD root, successful expansion, compute installation, and Live Vision remain
+unverified. Host image validation and flash verification do not establish those results. See
 [the first-boot observations](first-boot-recovery.md#what-has-been-observed).
 
 The NVIDIA archive hashes in `scripts/jetpack/release.json` pin the official-download
