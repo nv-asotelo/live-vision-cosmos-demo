@@ -116,6 +116,8 @@ Use one declared protocol for each build: five warmups followed by at least 30 m
 requests spanning several output lengths. Control vision-cache hits explicitly, or use
 the same collection of distinct images in both runs. Record actual generated token
 counts, prompt/image tokens, precision, image dimensions, clocks and cache state.
+Record V1/V2 plugin selection too: a V1-to-V2 kernel change must not be reported as
+an SDK-version improvement in a comparison that changed both at once.
 
 Measure server TTFT and inference duration with the same timing boundaries, excluding
 JPEG encode/decode, transport and admission queueing. Fit duration against actual
@@ -146,6 +148,13 @@ passed. An independent source review checked the native constructor and request 
 against the pinned SDK. These checks use fake runtimes/devices where needed. They do
 not establish GPU compilation, real checkpoint export, engine loading, card boot,
 visual accuracy, RAM use or latency on the new SDK.
+
+Two additional **CPU-native template checks passed** using the unmodified 0.11
+Inja renderer and the actual pinned Cosmos Jinja: a text prompt and a single-image
+caption prompt, both with thinking disabled. The checks verify prompt preservation,
+the image placeholder and the non-thinking assistant prefix. They do not exercise
+the full tokenizer/pybind/inference path. See the
+[native-template validation record](validation/edgellm-0.11-native-template-2026-10-05.json).
 
 A separate source audit confirmed that the existing SM87/AArch64 CuTe commands,
 CMake options and targets, Cosmos export flags, and LLM/visual engine-capacity flags
