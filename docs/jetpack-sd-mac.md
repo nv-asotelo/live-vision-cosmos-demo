@@ -186,8 +186,11 @@ A reboot was initiated for the pending NVIDIA bootloader-capsule/system update.
 The same board returned on USB with its chosen hostname at the login prompt.
 Fresh login then succeeded. The changed boot ID, same SD root and SSH identity,
 47 GiB free, working wired route and cleared reboot-required flag were verified.
-The pinned demo installer is running over Ethernet; compute installation and
-Live Vision inference remain pending. Test later network changes only after real
+Compute installation, native runtime compilation, INT4 quantization and both
+ONNX exports subsequently completed on the new board. A swap-status parsing error
+stopped engine construction; its correction passed a hardware activation/cleanup
+check. See the [installer recovery guidance](first-boot-recovery.md#if-the-demo-installer-stops).
+Engine construction and Live Vision inference remain pending. Test later network changes only after real
 inference, using [the Wi-Fi switching guide](network-switching.md). Host image validation and
 flash verification do not establish those results. See
 [the first-boot observations](first-boot-recovery.md#what-has-been-observed).

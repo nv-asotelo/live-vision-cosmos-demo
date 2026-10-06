@@ -145,6 +145,14 @@ completed stages are skipped, not redone (the markers are root-owned files - `su
 make that stage run again). Do not try to skip ahead by hand-editing markers
 unless you're certain a stage's actual output is already correct on disk.
 
+For a failure after both ONNX exports, read the
+[installer recovery guidance](docs/first-boot-recovery.md#if-the-demo-installer-stops).
+The preflight can select a 12 GiB remaining-space allowance only after checking all
+preceding stages, exported tensor-file ranges and the provider Jinja. Do not lower
+the threshold or create markers by hand. On util-linux 2.39.3, select swap report
+columns with `swapon --show=NAME,SIZE`; `--output` silently selects a different option
+and caused a verified false rejection of active swap during this trial.
+
 **Optional `--host-quantize`** (`./scripts/bootstrap.sh --host-quantize jetson-user@orin-ip`)
 does step 4's LLM quantize+export on the laptop instead of the Orin, getting the SDK's
 primary V2/cuteDSL plugin instead of its legacy V1 fallback - see the Boundaries entry on

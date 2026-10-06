@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Offline installer failures: temporary fixtures, no root, devices or downloads."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -21,14 +22,46 @@ ARTIFACTS = (
     "onnx/llm/model.onnx", "onnx/visual/model.onnx",
     "engines/llm.engine", "engines/visual/visual.engine", "engines/chat_template.jinja",
 )
+ENGINE_READY_STAGES = (
+    "system_packages", "pin_clocks", "fetch_repo_self", "jetpack_compute", "fetch_edgellm",
+    "edgellm_venv", "build_edgellm_runtime", "download_checkpoint", "fix_raw_config",
+    "quantize", "export_onnx_llm", "export_onnx_visual", "validate_chat_template",
+)
 
 COMMON = r'''
 STATE_DIR="$FIXTURE/state"
 EDGELLM_DIR="$FIXTURE/sdk"
 EDGELLM_PY="$EDGELLM_DIR/.venv/bin/python"
 ONNX_DIR="$FIXTURE/onnx"
+RAW_DIR="$FIXTURE/raw"
 ENGINE_DIR="$FIXTURE/engines"
 BUILD_SWAPFILE="$FIXTURE/build-swap.img"
+'''
+
+# Minimal ONNX metadata fixture, not an inference/serialization implementation. The
+# real helper reads its objects and validates actual on-disk external tensor ranges.
+ONNX_FAKE = r'''
+import json
+from types import SimpleNamespace
+
+class TensorProto:
+    EXTERNAL = 1
+    def __init__(self, metadata):
+        self.data_location = self.EXTERNAL
+        self.external_data = [SimpleNamespace(key=k, value=v) for k, v in metadata.items()]
+
+class Model:
+    def __init__(self, data):
+        self.graph = SimpleNamespace(node=data["nodes"])
+        self.tensors = [TensorProto(item) for item in data["tensors"]]
+    def ListFields(self):
+        field = SimpleNamespace(type=11, TYPE_MESSAGE=11, is_repeated=True)
+        return [(field, self.tensors)]
+
+def load(path, *, load_external_data):
+    assert load_external_data is False, "preflight must not load external tensor data"
+    with open(path) as handle:
+        return Model(json.load(handle))
 '''
 
 # These stand in for all privileged/Linux-specific operations. Sparse fixture files
@@ -56,9 +89,19 @@ mkswap() {
   [[ "${FAIL_INITIALIZE:-0}" == 0 ]]
 }
 swapon() {
-  if [[ "$1" == --show ]]; then
+  if [[ "$1" == --show || "$1" == --show=* ]]; then
     [[ "${FAIL_INVENTORY:-0}" == 0 ]] || return 1
-    [[ ! -f "$FIXTURE/active" ]] || cat "$FIXTURE/active"
+    [[ -f "$FIXTURE/active" ]] || return 0
+    if [[ "$1" == --show=NAME,SIZE ]]; then
+      cat "$FIXTURE/active"
+    elif [[ "$1" == --show && " $* " == *" --output NAME,SIZE "* ]]; then
+      # util-linux 2.39.3 has no --output: it abbreviates --options instead.
+      # Real Orin output therefore includes TYPE before SIZE, even with --bytes.
+      awk '{print $1, "file", $2, "0", "-2", "fixture-uuid"}' "$FIXTURE/active"
+    else
+      echo 'fixture: unsupported swapon inventory arguments' >&2
+      return 2
+    fi
     return 0
   fi
   echo activate >> "$FIXTURE/events"
@@ -89,6 +132,7 @@ class SetupFailureGuards(unittest.TestCase):
         env = {
             **os.environ, "FIXTURE": str(self.fixture), "TEST_PYTHON": sys.executable,
             "REACHY_MINI_IP": "192.0.2.50", "HF_TOKEN_FILE": "", "HF_TOKEN": "",
+            "PYTHONPATH": str(self.fixture / "fake-modules"),
         }
         # Sourcing defines functions but main() is guarded by BASH_SOURCE == $0.
         return subprocess.run(
@@ -104,6 +148,32 @@ class SetupFailureGuards(unittest.TestCase):
             path = self.fixture / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture artifact\n")
+
+    def populate_engine_ready(self):
+        for stage in ENGINE_READY_STAGES:
+            (self.fixture / "state" / stage).write_text(SDK + "\n")
+        for relative in ARTIFACTS[:4]:
+            path = self.fixture / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fixture artifact\n")
+            path.chmod(0o755)
+        (self.fixture / "sdk/.venv/bin/python").write_text('#!/bin/sh\nexec "$TEST_PYTHON" "$@"\n')
+        module_dir = self.fixture / "fake-modules"
+        module_dir.mkdir()
+        (module_dir / "onnx.py").write_text(ONNX_FAKE)
+        raw = self.fixture / "raw"
+        raw.mkdir()
+        (raw / "chat_template.jinja").write_text("original provider template\n")
+        for tower in ("llm", "visual"):
+            directory = self.fixture / "onnx" / tower
+            directory.mkdir(parents=True)
+            (directory / "config.json").write_text('{"model_type": "fixture"}')
+            (directory / "model.onnx").write_text(json.dumps({
+                "nodes": ["fixture node"],
+                "tensors": [{"location": "weights.bin", "offset": "16", "length": "4096"}],
+            }))
+            (directory / "weights.bin").write_bytes(b"x" * 4112)
+        (self.fixture / "onnx/llm/chat_template.jinja").write_bytes((raw / "chat_template.jinja").read_bytes())
 
     def swap_fixture(self):
         path = self.fixture / "build-swap.img"
@@ -128,6 +198,76 @@ class SetupFailureGuards(unittest.TestCase):
         # No quantized checkpoint exists: valid for a completed host-export installation.
         self.assertFalse((self.fixture / "checkpoints").exists())
 
+    def test_verified_exports_allow_engine_only_resume_with_12_gib(self):
+        self.populate_engine_ready()
+        result = self.run_shell("minimum_free_space_gib")
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "12"), result.stderr)
+        self.assertFalse((self.fixture / "state/build_engine").exists())
+        self.assertFalse((self.fixture / "checkpoints").exists())
+
+    def test_engine_resume_requires_every_preceding_stage(self):
+        self.populate_engine_ready()
+        for stage in ENGINE_READY_STAGES:
+            with self.subTest(stage=stage):
+                marker = self.fixture / "state" / stage
+                marker.unlink()
+                self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+                marker.write_text(SDK + "\n")
+        for stage in (*HEAVY_STAGES, "fetch_repo_self"):
+            with self.subTest(stale=stage):
+                marker = self.fixture / "state" / stage
+                marker.write_text("old-sdk\n")
+                self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+                if stage == "build_engine":
+                    marker.unlink()
+                else:
+                    marker.write_text(SDK + "\n")
+
+    def test_engine_resume_rejects_missing_or_truncated_external_data(self):
+        self.populate_engine_ready()
+        for tower in ("llm", "visual"):
+            with self.subTest(tower=tower):
+                payload = self.fixture / "onnx" / tower / "weights.bin"
+                payload.unlink()
+                self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+                payload.write_bytes(b"x" * 4096)  # length fits only if the offset is ignored
+                self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+                payload.write_bytes(b"x" * 4112)
+
+    def test_engine_resume_rejects_external_data_outside_export(self):
+        self.populate_engine_ready()
+        model_path = self.fixture / "onnx/llm/model.onnx"
+        model = json.loads(model_path.read_text())
+        for location in ("../visual/weights.bin", str(self.fixture / "onnx/visual/weights.bin")):
+            model["tensors"][0]["location"] = location
+            model_path.write_text(json.dumps(model))
+            self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+
+    def test_engine_resume_requires_unchanged_provider_template(self):
+        self.populate_engine_ready()
+        exported = self.fixture / "onnx/llm/chat_template.jinja"
+        original = exported.read_bytes()
+        for changed in (b"", b"rewritten template"):
+            exported.write_bytes(changed)
+            self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+        exported.write_bytes(original)
+        conflict = self.fixture / "onnx/llm/processed_chat_template.json"
+        conflict.write_text("{}")
+        self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+
+    def test_engine_resume_rejects_missing_or_invalid_runtime_and_exports(self):
+        self.populate_engine_ready()
+        for relative in (*ARTIFACTS[:6], "onnx/llm/config.json", "onnx/visual/config.json"):
+            with self.subTest(relative=relative):
+                path = self.fixture / relative
+                original = path.read_bytes()
+                path.write_bytes(b"")
+                self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+                path.write_bytes(original)
+        config = self.fixture / "onnx/visual/config.json"
+        config.write_text("not json")
+        self.assertEqual(self.run_shell("minimum_free_space_gib").stdout.strip(), "25")
+
     def test_stale_markers_and_missing_artifacts_require_build_headroom(self):
         self.populate_completed_install()
         marker = self.fixture / "state/build_engine"
@@ -147,6 +287,17 @@ class SetupFailureGuards(unittest.TestCase):
         self.assertIn("BUILD", result.stdout)
         self.assertEqual(self.events(), ["allocate", "initialize", "activate", "deactivate"])
         self.assertFalse((self.fixture / "build-swap.img").exists())
+
+    def test_swap_inventory_selects_columns_with_show_not_output(self):
+        path = self.swap_fixture()
+        # Observed on the new Orin: 4 GiB file minus a 4096-byte header page.
+        active_bytes = 4294963200
+        (self.fixture / "active").write_text(f"{path} {active_bytes}\n")
+        result = self.run_shell("build_swap_size_bytes", swap=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(active_bytes), result.stderr)
+        self.assertEqual(self.events(), [])
+        self.assertTrue(path.exists())
 
     def test_rejected_or_unverified_activation_stops_before_build(self):
         for flag in ("FAIL_ACTIVATE", "LIE_ACTIVATE"):

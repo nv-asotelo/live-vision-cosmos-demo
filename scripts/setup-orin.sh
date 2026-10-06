@@ -91,13 +91,13 @@ stage() {
   stage_mark "$name"
 }
 
-minimum_free_space_gib() {
+completed_build_artifacts_present() {
   # One early marker (for example system_packages) says nothing about the remaining
   # downloads/builds. Only a completed, current-SDK installation gets the maintenance
   # allowance. Do not demand quantized checkpoint files: host export does not copy them.
   local name artifact
   for name in fetch_edgellm edgellm_venv build_edgellm_runtime quantize export_onnx_llm export_onnx_visual validate_chat_template build_engine; do
-    if ! stage_done "$name"; then printf '25\n'; return; fi
+    stage_done "$name" || return 1
   done
   for artifact in "$EDGELLM_PY" \
       "$EDGELLM_DIR/build/examples/llm/llm_build" \
@@ -106,9 +106,91 @@ minimum_free_space_gib() {
       "$ONNX_DIR/llm/model.onnx" "$ONNX_DIR/visual/model.onnx" \
       "$ENGINE_DIR/llm.engine" "$ENGINE_DIR/visual/visual.engine" \
       "$ENGINE_DIR/chat_template.jinja"; do
-    if [[ ! -s "$artifact" ]]; then printf '25\n'; return; fi
+    [[ -s "$artifact" ]] || return 1
   done
-  printf '8\n'
+}
+
+engine_build_inputs_present() {
+  # Every preceding main() stage must be finished, so a resumed invocation cannot
+  # unexpectedly repeat downloads or exports under the smaller space allowance.
+  local name artifact
+  for name in system_packages pin_clocks fetch_repo_self jetpack_compute fetch_edgellm \
+      edgellm_venv build_edgellm_runtime download_checkpoint fix_raw_config quantize \
+      export_onnx_llm export_onnx_visual validate_chat_template; do
+    stage_done "$name" || return 1
+  done
+  # Only an engine build that has not finished qualifies for this middle tier.
+  [[ ! -e "$STATE_DIR/build_engine" ]] || return 1
+  for artifact in "$EDGELLM_PY" "$EDGELLM_DIR/build/examples/llm/llm_build" \
+      "$EDGELLM_DIR/build/examples/multimodal/visual_build"; do
+    [[ -s "$artifact" && -x "$artifact" ]] || return 1
+  done
+  [[ -s "$EDGELLM_DIR/build/libNvInfer_edgellm_plugin.so" ]] || return 1
+  # Parse metadata only: never load multi-GB external weights into this preflight.
+  # Failure or unsupported metadata conservatively restores the 25 GiB requirement.
+  "$EDGELLM_PY" - "$RAW_DIR" "$ONNX_DIR" <<'PY' >/dev/null 2>&1
+import json
+import sys
+from pathlib import Path
+import onnx
+
+
+def tensors(message):
+    if isinstance(message, onnx.TensorProto):
+        yield message
+        return
+    for field, value in message.ListFields():
+        if field.type == field.TYPE_MESSAGE:
+            repeated = getattr(field, "is_repeated", None)
+            if repeated is None:  # Older protobuf descriptors.
+                repeated = field.label == field.LABEL_REPEATED
+            children = value if repeated else (value,)
+            for child in children:
+                yield from tensors(child)
+
+
+try:
+    raw, exports = map(Path, sys.argv[1:])
+    provider = (raw / "chat_template.jinja").read_bytes()
+    assert provider.strip() and (exports / "llm/chat_template.jinja").read_bytes() == provider
+    for conflict in ("processed_chat_template.json", "chat_template.model", "additional_chat_templates"):
+        assert not (exports / "llm" / conflict).exists()
+    for tower in ("llm", "visual"):
+        directory = (exports / tower).resolve(strict=True)
+        config = json.loads((directory / "config.json").read_text())
+        assert isinstance(config, dict) and config
+        model_path = directory / "model.onnx"
+        assert model_path.is_file() and model_path.stat().st_size > 0
+        model = onnx.load(str(model_path), load_external_data=False)
+        assert model.graph.node
+        for tensor in tensors(model):
+            if tensor.data_location != onnx.TensorProto.EXTERNAL:
+                continue
+            metadata = {entry.key: entry.value for entry in tensor.external_data}
+            assert len(metadata) == len(tensor.external_data)
+            location = Path(metadata["location"])
+            assert str(location) != "." and not location.is_absolute()
+            payload = (directory / location).resolve(strict=True)
+            assert payload.is_relative_to(directory) and payload.is_file()
+            size = payload.stat().st_size
+            offset = int(metadata.get("offset", "0"))
+            length = int(metadata["length"]) if "length" in metadata else size - offset
+            assert offset >= 0 and length > 0 and offset + length <= size
+except Exception:
+    sys.exit(1)
+PY
+}
+
+minimum_free_space_gib() {
+  if completed_build_artifacts_present; then
+    printf '8\n'
+  elif engine_build_inputs_present; then
+    # Provisional remaining-work allowance: 4 GiB build swap, serialized engines
+    # and margin. This is not a measured v0.11 peak-disk-usage claim.
+    printf '12\n'
+  else
+    printf '25\n'
+  fi
 }
 
 # ---------------------------------------------------------------------------------------
@@ -132,8 +214,18 @@ do_preflight() {
   local avail_kb; avail_kb=$(df -Pk "$(dirname "$INSTALL_DIR")" | awk 'NR==2{print $4}')
   local avail_gb=$((avail_kb / 1024 / 1024))
   local min_gb; min_gb="$(minimum_free_space_gib)"
-  [[ "$avail_gb" -ge "$min_gb" ]] || die "only ${avail_gb} GiB free under $(dirname "$INSTALL_DIR") - need at least ${min_gb} GiB ($( [[ "$min_gb" -eq 25 ]] && echo "fresh, partial or stale-SDK build; heavy artifacts not yet confirmed complete" || echo "maintenance of a completed current-SDK build" )). Check filesystem expansion and free space with findmnt / and df -h; free unrelated files or use a larger disk/SD card. Do not create stage markers to bypass this check."
-  [[ "$avail_gb" -ge 40 || "$min_gb" -eq 8 ]] || warn "${avail_gb} GiB free is tight. The build will likely fit, but there's little margin - consider a 64 GB+ card if this is a fresh flash."
+  local space_reason
+  case "$min_gb" in
+    8) space_reason="maintenance of a completed current-SDK build" ;;
+    12) space_reason="verified current-SDK exports; provisional allowance for engine build and 4 GiB swap" ;;
+    *) space_reason="fresh, partial or stale-SDK build; heavy artifacts not yet confirmed complete" ;;
+  esac
+  [[ "$avail_gb" -ge "$min_gb" ]] || die "only ${avail_gb} GiB free under $(dirname "$INSTALL_DIR") - need at least ${min_gb} GiB ($space_reason). Check filesystem expansion and free space with findmnt / and df -h; free unrelated files or use a larger disk/SD card. Do not create stage markers to bypass this check."
+  if [[ "$min_gb" -eq 25 && "$avail_gb" -lt 40 ]]; then
+    warn "${avail_gb} GiB free leaves limited margin for a fresh build; consider a 64 GB+ card."
+  elif [[ "$min_gb" -eq 12 ]]; then
+    log "verified exports: ${avail_gb} GiB free; using the provisional 12 GiB engine-build allowance (not a measured peak)."
+  fi
   mkdir -p "$INSTALL_DIR"
   id -u "$SERVICE_USER" >/dev/null 2>&1 || die "SERVICE_USER=$SERVICE_USER does not exist. Set SERVICE_USER to the account that should own and run these services (not root)."
   # SERVICE_USER falls back to $SUDO_USER, then to id -un - but id -un reports the CURRENT
@@ -574,7 +666,9 @@ resume_inference() {
 
 build_swap_size_bytes() {
   # A failed inventory is different from an inactive file. pipefail preserves errors.
-  swapon --show --bytes --noheadings --raw --output NAME,SIZE \
+  # swapon 2.39.3 accepts --output as an abbreviation of --options, silently
+  # keeping all columns. Select columns via --show so the second field is SIZE.
+  swapon --show=NAME,SIZE --bytes --noheadings --raw \
     | awk -v path="$BUILD_SWAPFILE" '$1 == path {print $2}'
 }
 

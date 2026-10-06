@@ -255,8 +255,10 @@ substitutes for their artifacts.
 | Failure or state | Safe next step |
 | --- | --- |
 | Insufficient storage on a fresh, partial, or stale-SDK installation | Setup requires **25 GiB free**. Check the root device, filesystem expansion and available space. Free identified unrelated files or use larger storage; do not manufacture stage markers to obtain the lower threshold. |
-| Maintenance of an already completed installation | The **8 GiB** threshold applies only when the heavy stages have current-SDK markers and the checked native runtime, ONNX exports, engines and Jinja template are present and nonempty. A partial resume still requires 25 GiB. |
+| Both exports are complete and only engine construction remains | A **12 GiB** resume allowance applies only after every preceding stage is complete, native build tools are present, both ONNX exports and their external tensor ranges validate, and the exported Jinja matches the provider template. This budgets 4 GiB for temporary swap plus engine output and margin; it is not a measured peak-space guarantee. Other partial installations retain the 25 GiB requirement. |
+| Maintenance of an already completed installation | The **8 GiB** threshold applies only when the heavy stages have current-SDK markers and the checked native runtime, ONNX exports, engines and Jinja template are present and nonempty. |
 | Build-swap creation, activation or verification fails | Engine construction requires the equivalent of a **4 GiB active swapfile** (allowing the swap header page). Inspect `df -h`, `free -h` and `swapon --show --bytes`; fix the reported cause before resuming. The installer stops before the engine build if it cannot verify this swap. |
+| Swap is active but the installer reports that its size could not be verified | Use `swapon --show=NAME,SIZE --bytes --noheadings --raw`. On util-linux 2.39.3, `--output` is accepted as an abbreviation of `--options`, leaving extra columns in the report. An older installer parsed `file` as the size and rejected valid swap. Update to the corrected installer; do not bypass verification or add swap repeatedly. |
 | An old, unfamiliar or replaced `data/build-swap.img` exists | Inspect its identity and active-swap status. Existing files are not reformatted or deleted by this run. Already-active sufficient swap is preserved; if the run activates an existing inactive file, cleanup may deactivate it but preserves the file. A replaced path is left untouched. |
 | A build fails normally, or receives an interrupt/termination signal | Cleanup removes only the unchanged swapfile created by that invocation, after verifying it is inactive. If inference was paused, it remains stopped because an engine may have been partially rewritten. Fix the error, rerun setup to finish the build, then verify real model output before serving. |
 | `swapoff` or cleanup fails | Preserve the file and inspect available RAM and active swap. Never delete an active swapfile. Setup does not proceed to service startup after its post-build cleanup fails. |
@@ -379,6 +381,28 @@ reboot-required flag were verified. No failed systemd units were listed. These
 checks establish successful setup and storage persistence; they do not establish
 model inference. The pinned demo installer has now started over Ethernet, with
 its log retained on the new board. No cause is attributed to the failed Mac repair.
+
+**Build checkpoint, 2026-10-06:** CUDA/TensorRT installation, SDK 0.11 native
+compilation and runtime import, checkpoint download, all-linear INT4 quantization,
+both ONNX exports, and provider-Jinja validation completed. Header/graph inspection
+confirmed 169 packed checkpoint linears and 169 V1 INT4 operators. This is structural
+quantization evidence, not a caption-quality result.
+
+Engine construction then stopped at swap verification. The 4 GiB file was actually
+active, reporting 4,294,963,200 usable bytes after its 4 KiB header. The original
+column-selection command returned all columns, so the verifier read `file` instead
+of a byte count. Cleanup successfully deactivated and removed the temporary file.
+After the command correction, a separate hardware check passed activation, size
+verification and cleanup. Completed exports consumed space that the original
+25 GiB restart check still reserved for work already finished; the installer now
+has a guarded allowance for resuming directly at engine construction.
+
+The installed PyTorch 2.13.0 CUDA build warns that this GPU is unsupported, and
+ModelOpt warns about the installed Transformers version. These warnings did not
+prevent the two CPU exports from completing. This route uses NumPy quantization,
+CPU ONNX export, and native CUDA/TensorRT engine construction and serving; it does
+not establish that PyTorch CUDA inference works on this board. Engine construction
+and real-image caption validation remain pending at this checkpoint.
 
 After real image inference is confirmed, use [the Wi-Fi switching guide](network-switching.md)
 to test another connection and restore Ethernet. Network changes remain untested
