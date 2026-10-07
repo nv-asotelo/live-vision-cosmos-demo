@@ -16,6 +16,11 @@ discovery path. Include them in the release dependency inventory; they are insta
 dependencies, not third-party source copied into this repository. If an administrator
 has disabled the daemon, use manual setup or skip rather than overriding that policy.
 
+If the first search is empty, wait a few seconds and choose **Scan again** once.
+An empty result does not by itself mean the robot needs rebooting. Discovery needs
+both an advertisement and a valid daemon response; camera contention is a separate
+check after connection. If discovery remains empty, use the manual fallback below.
+
 If no robot appears, check its own Reachy dashboard or your router for its address.
 The robot and Orin must be reachable on the same local network. A network may block
 mDNS while still allowing a manual address. Enter the verified address or skip.
@@ -114,6 +119,10 @@ address cleanly skipped its execution rather than entering a restart loop. The
 services panel showed **Not configured** for the bridge and **Idle · connect
 Reachy Mini** for Piper. A bounded discovery request returned no verified robot;
 manual entry and skip remained available. No robot was selected or controlled.
+
+A later retry discovered one robot and verified its daemon as running and ready.
+No robot reboot was performed. This confirmed the discovery path on the actual
+network; physical camera and speaker checks still require selecting that robot.
 
 Offline checks passed: 89 Python UI tests, 55 installer tests and 32 JavaScript
 tests. Desktop and mobile browser checks used synthetic robot responses to test
